@@ -1,0 +1,181 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============ MODULE 1: FIR & CASE MANAGEMENT ============
+
+model FIR {
+  id            String   @id @default(cuid())
+  firNumber     String   @unique
+  complainantName String
+  complainantPhone String?
+  complainantAddress String?
+  incidentDate  DateTime
+  incidentLocation String
+  crimeCategory String
+  description   String
+  accusedNames  String?
+  status        String   @default("Open") // Open, Under Investigation, Closed, Transferred
+  assignedTo    String?
+  priority      String   @default("Medium") // Low, Medium, High, Critical
+  station       String   @default("Main Station")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  investigationNotes InvestigationNote[]
+}
+
+model InvestigationNote {
+  id        String   @id @default(cuid())
+  firId     String
+  fir       FIR      @relation(fields: [firId], references: [id], onDelete: Cascade)
+  officerName String
+  note      String
+  actionTaken String?
+  createdAt DateTime @default(now())
+}
+
+// ============ MODULE 2: STAFF & DUTY MANAGEMENT ============
+
+model Officer {
+  id            String   @id @default(cuid())
+  badgeNumber   String   @unique
+  name          String
+  rank          String   @default("Officer")
+  department    String   @default("General Patrol")
+  phone         String?
+  email         String?
+  status        String   @default("Active") // Active, On Leave, Suspended
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  attendances   Attendance[]
+  leaveRequests LeaveRequest[]
+  dutyAssignments DutyAssignment[]
+}
+
+model Attendance {
+  id          String   @id @default(cuid())
+  officerId   String
+  officer     Officer  @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  date        DateTime @default(now())
+  checkIn     DateTime?
+  checkOut    DateTime?
+  hoursWorked Float?
+  status      String   @default("Present") // Present, Absent, Half Day
+  notes       String?
+  createdAt   DateTime @default(now())
+}
+
+model DutyAssignment {
+  id          String   @id @default(cuid())
+  officerId   String
+  officer     Officer  @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  shiftType   String   @default("Day") // Day, Night, Patrol
+  postArea    String?
+  assignedDate DateTime
+  startTime   String?
+  endTime     String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+}
+
+model LeaveRequest {
+  id          String   @id @default(cuid())
+  officerId   String
+  officer     Officer  @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  leaveType   String   @default("Annual") // Annual, Sick, Emergency, Maternity
+  startDate   DateTime
+  endDate     DateTime
+  days        Float?
+  reason      String?
+  status      String   @default("Pending") // Pending, Approved, Rejected
+  approvedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============ MODULE 3: REPORTING (views built from above data) ============
+// Reports are generated dynamically from FIR, Attendance, Officer data
+
+// ============ MODULE 4: VEHICLE & EQUIPMENT TRACKING ============
+
+model Vehicle {
+  id              String   @id @default(cuid())
+  registrationNumber String @unique
+  make            String
+  model           String
+  year            Int?
+  vehicleType     String   @default("Patrol Car")
+  status          String   @default("Available") // Available, Assigned, Maintenance, Out of Service
+  insuranceExpiry DateTime?
+  lastServiceDate DateTime?
+  nextServiceDate DateTime?
+  currentMileage  Int      @default(0)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  assignments     VehicleAssignment[]
+  fuelLogs        FuelLog[]
+  maintenanceLogs MaintenanceLog[]
+}
+
+model VehicleAssignment {
+  id          String   @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  officerName String?
+  officerBadge String?
+  purpose     String?
+  assignedDate DateTime
+  returnDate  DateTime?
+  status      String   @default("Assigned") // Assigned, Returned
+  createdAt   DateTime @default(now())
+}
+
+model FuelLog {
+  id          String   @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  date        DateTime
+  fuelType    String   @default("Diesel")
+  liters      Float
+  cost        Float?
+  mileage     Int?
+  filledBy    String?
+  createdAt   DateTime @default(now())
+}
+
+model MaintenanceLog {
+  id          String   @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  maintenanceType String // Routine, Repair, Tire Change, Oil Change
+  description String
+  cost        Float?
+  performedBy String?
+  performedDate DateTime
+  nextDueDate DateTime?
+  status      String   @default("Completed") // Scheduled, In Progress, Completed
+  createdAt   DateTime @default(now())
+}
+
+model Equipment {
+  id            String   @id @default(cuid())
+  itemCode      String   @unique
+  name          String
+  category      String   @default("Communication")
+  quantity      Int      @default(1)
+  availableQty  Int      @default(1)
+  condition     String   @default("Good") // Good, Fair, Poor, Needs Replacement
+  storageLocation String?
+  lastChecked   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
