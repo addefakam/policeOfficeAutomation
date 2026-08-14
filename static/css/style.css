@@ -20,7 +20,7 @@
 }
 
 html, body {
-    height: 100%;
+    min-height: 100%;
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     background: var(--body-bg);
 }
@@ -368,7 +368,8 @@ html {
     align-items: center;
     justify-content: center;
     background: linear-gradient(135deg, #1a1f36 0%, #2d3561 50%, #1a1f36 100%);
-    padding: 1rem;
+    padding: 1.5rem;
+    overflow-y: auto;
 }
 
 .login-card {
