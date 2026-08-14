@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.db import ProgrammingError, OperationalError
+from django.db.migrations.exceptions import InconsistentMigrationHistory
 from .decorators import require_auth, require_role
 from .middleware import log_audit, get_client_ip
 from .models import CustomUser, AuditLog, ROLE_HIERARCHY
@@ -37,9 +38,19 @@ def _check_db():
 
 
 def _auto_migrate():
-    """Run migrations + seed. Called when DB tables are missing."""
-    from django.core.management import call_command
-    call_command('migrate', verbosity=0, interactive=False, run_syncdb=True)
+    """Create tables directly via schema editor, bypassing migration history."""
+    from django.apps import apps
+    from django.db import connections
+    connection = connections['default']
+    with connection.schema_editor() as schema_editor:
+        for app_config in apps.get_app_configs():
+            if not app_config.models_module:
+                continue
+            for model in app_config.get_models():
+                try:
+                    schema_editor.create_model(model)
+                except (ProgrammingError, OperationalError):
+                    pass  # table already exists
     from seed_data import seed
     seed()
 
@@ -58,7 +69,7 @@ def login_view(request):
             password = form.cleaned_data['password']
             try:
                 user = authenticate(request, username=username, password=password)
-            except (ProgrammingError, OperationalError):
+            except (ProgrammingError, OperationalError, InconsistentMigrationHistory):
                 _auto_migrate()
                 user = authenticate(request, username=username, password=password)
             if user:

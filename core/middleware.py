@@ -5,12 +5,11 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# ── Per-instance flag ──
 _MIGRATED = os.environ.get('_PDMS_MIGRATED', '0') == '1'
 
 
 def _ensure_tables():
-    """Run migrations + seed if tables don't exist."""
+    """Create tables via schema editor if core_customuser is missing."""
     global _MIGRATED
     if _MIGRATED:
         return
@@ -32,10 +31,18 @@ def _ensure_tables():
             exists = cursor.fetchone()
 
         if not exists:
-            logger.info('[PDMS] Tables missing — running migrations...')
-            from django.core.management import call_command
-            call_command('migrate', verbosity=0, interactive=False, run_syncdb=True)
-            logger.info('[PDMS] Migrations done — seeding...')
+            logger.info('[PDMS] Tables missing — creating via schema editor...')
+            from django.apps import apps
+            with conn.schema_editor() as schema_editor:
+                for app_config in apps.get_app_configs():
+                    if not app_config.models_module:
+                        continue
+                    for model in app_config.get_models():
+                        try:
+                            schema_editor.create_model(model)
+                        except Exception:
+                            pass
+            logger.info('[PDMS] Tables created — seeding...')
             from seed_data import seed
             seed()
             logger.info('[PDMS] Seed complete.')
@@ -47,14 +54,12 @@ def _ensure_tables():
 
 
 class AutoMigrateMiddleware(MiddlewareMixin):
-    """Runs migrations on first request if tables are missing."""
     def process_request(self, request):
         _ensure_tables()
         return None
 
 
 class AuditMiddleware(MiddlewareMixin):
-    """Middleware that logs audit entries queued by views."""
     def process_response(self, request, response):
         if hasattr(request, '_audit_entries'):
             from .models import AuditLog
@@ -67,7 +72,6 @@ class AuditMiddleware(MiddlewareMixin):
 
 
 def log_audit(request, action, model_type='', object_id='', details=None):
-    """Utility function to log an audit entry."""
     from .models import AuditLog
     entry = {
         'user': request.user if request.user.is_authenticated else None,
