@@ -1,3 +1,4 @@
 {
-  "framework": "django"
+  "framework": "django",
+  "buildCommand": "bash build.sh"
 }
