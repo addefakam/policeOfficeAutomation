@@ -5,50 +5,45 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# ── Auto-migrate flag (per serverless instance) ──
+# ── Per-instance flag ──
 _MIGRATED = os.environ.get('_PDMS_MIGRATED', '0') == '1'
 
 
 def _ensure_tables():
-    """Run migrations + seed if tables don't exist yet.
-    Uses raw SQL check to avoid importing models that depend on the tables.
-    """
+    """Run migrations + seed if tables don't exist."""
     global _MIGRATED
     if _MIGRATED:
         return
     try:
         from django.db import connections
         conn = connections['default']
-        # Check if core_customuser table exists (raw SQL, no model import)
         with conn.cursor() as cursor:
-            db_engine = conn.vendor
-            if db_engine == 'postgresql':
+            if conn.vendor == 'postgresql':
                 cursor.execute(
                     "SELECT 1 FROM information_schema.tables "
                     "WHERE table_schema='public' AND table_name='core_customuser'"
                 )
-            elif db_engine == 'sqlite':
+            elif conn.vendor == 'sqlite':
                 cursor.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='core_customuser'"
                 )
             else:
-                return  # unknown engine, skip
+                return
             exists = cursor.fetchone()
-        
+
         if not exists:
             logger.info('[PDMS] Tables missing — running migrations...')
             from django.core.management import call_command
             call_command('migrate', verbosity=0, interactive=False)
             logger.info('[PDMS] Migrations done — seeding...')
-            import importlib
-            seed = importlib.import_module('seed_data')
-            seed.seed()
+            from seed_data import seed
+            seed()
             logger.info('[PDMS] Seed complete.')
-        
+
         _MIGRATED = True
         os.environ['_PDMS_MIGRATED'] = '1'
     except Exception as e:
-        logger.error(f'[PDMS] Auto-migrate failed: {e}')
+        logger.warning(f'[PDMS] Auto-migrate skipped: {e}')
 
 
 class AutoMigrateMiddleware(MiddlewareMixin):

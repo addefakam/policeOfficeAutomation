@@ -3,6 +3,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib import messages
 from django.utils import timezone
 from django.utils.dateparse import parse_date
+from django.db import ProgrammingError, OperationalError
 from .decorators import require_auth, require_role
 from .middleware import log_audit, get_client_ip
 from .models import CustomUser, AuditLog, ROLE_HIERARCHY
@@ -18,7 +19,36 @@ DEMO_ACCOUNTS = [
 ]
 
 
+def _check_db():
+    """Return True if core_customuser table exists."""
+    from django.db import connections
+    conn = connections['default']
+    with conn.cursor() as cursor:
+        if conn.vendor == 'postgresql':
+            cursor.execute(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema='public' AND table_name='core_customuser' LIMIT 1"
+            )
+        else:
+            cursor.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='core_customuser' LIMIT 1"
+            )
+        return cursor.fetchone() is not None
+
+
+def _auto_migrate():
+    """Run migrations + seed. Called when DB tables are missing."""
+    from django.core.management import call_command
+    call_command('migrate', verbosity=0, interactive=False)
+    from seed_data import seed
+    seed()
+
+
 def login_view(request):
+    # Auto-migrate if tables don't exist yet
+    if not _check_db():
+        _auto_migrate()
+
     if request.user.is_authenticated:
         return redirect('core:dashboard')
     if request.method == 'POST':
@@ -26,7 +56,11 @@ def login_view(request):
         if form.is_valid():
             username = form.cleaned_data['username']
             password = form.cleaned_data['password']
-            user = authenticate(request, username=username, password=password)
+            try:
+                user = authenticate(request, username=username, password=password)
+            except (ProgrammingError, OperationalError):
+                _auto_migrate()
+                user = authenticate(request, username=username, password=password)
             if user:
                 if user.locked_until and user.locked_until > timezone.now():
                     messages.error(request, 'Account is locked. Try again later.')

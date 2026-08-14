@@ -1,11 +1,3 @@
-import os
-import sys
-import django
-
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
-sys.path.insert(0, os.path.dirname(__file__))
-django.setup()
-
 from datetime import date, timedelta
 from core.models import CustomUser
 from cases.models import Officer, FIR, CaseTeamMember, InvestigationNote, EvidenceItem, EvidenceCustody
@@ -139,7 +131,7 @@ def seed():
         ('EVD-005', 'FIR-005', 'Bank transaction records', 'Digital Evidence', 'Digital Evidence Lab'),
     ]
     for evd_num, fir_num, desc, itype, location in evidence_data:
-        evd, _ = EvidenceItem.objects.get_or_create(
+        evd, created = EvidenceItem.objects.get_or_create(
             item_number=evd_num,
             defaults={
                 'fir': firs[fir_num],
@@ -148,7 +140,7 @@ def seed():
                 'storage_location': location,
             }
         )
-        if _:
+        if created:
             EvidenceCustody.objects.create(
                 evidence=evd,
                 received_by=officers['OFF-002'],
@@ -273,14 +265,4 @@ def seed():
         )
     print(f'  Created equipment items')
 
-    print('\nSeed completed successfully!')
-    print('Demo accounts:')
-    print('  admin / admin123 (Administrator)')
-    print('  cmdr_haile / cmdr123 (Station Commander)')
-    print('  abebe / inv123 (Investigator)')
-    print('  kebede / inv123 (Investigator)')
-    print('  clerk_tigist / clerk123 (Clerk)')
-
-
-if __name__ == '__main__':
-    seed()
+    print('Seed completed successfully!')
