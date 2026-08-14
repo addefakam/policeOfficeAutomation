@@ -365,11 +365,9 @@ html {
     min-height: 100vh;
     min-height: 100dvh;
     display: flex;
-    align-items: center;
     justify-content: center;
     background: linear-gradient(135deg, #1a1f36 0%, #2d3561 50%, #1a1f36 100%);
     padding: 1.5rem;
-    overflow-y: auto;
 }
 
 .login-card {
@@ -379,6 +377,7 @@ html {
     border-radius: 1rem;
     box-shadow: 0 20px 60px rgba(0,0,0,0.3);
     overflow: hidden;
+    margin: auto;
 }
 
 .login-header {
@@ -465,9 +464,7 @@ html {
 /* ---- LOGIN RESPONSIVE ---- */
 @media (max-width: 575.98px) {
     .login-wrapper {
-        padding: 0.5rem;
-        align-items: flex-start;
-        padding-top: max(0.5rem, env(safe-area-inset-top));
+        padding: 0.75rem;
     }
 
     .login-card {
