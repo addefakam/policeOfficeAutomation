@@ -363,16 +363,17 @@ html {
 /* ---- LOGIN PAGE ---- */
 .login-wrapper {
     min-height: 100vh;
+    min-height: 100dvh;
     display: flex;
     align-items: center;
     justify-content: center;
     background: linear-gradient(135deg, #1a1f36 0%, #2d3561 50%, #1a1f36 100%);
+    padding: 1rem;
 }
 
 .login-card {
     width: 100%;
     max-width: 440px;
-    margin: 1rem;
     border: none;
     border-radius: 1rem;
     box-shadow: 0 20px 60px rgba(0,0,0,0.3);
@@ -383,13 +384,53 @@ html {
     background: linear-gradient(135deg, #1a1f36, #2d3561);
     color: #ffffff;
     text-align: center;
-    padding: 2rem 1.5rem 1.5rem;
+    padding: 1.75rem 1.5rem 1.25rem;
 }
 
 .login-header .login-icon {
-    font-size: 3rem;
+    font-size: 2.75rem;
     color: #4dabf7;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.4rem;
+}
+
+.login-card .card-body {
+    padding: 1.25rem 1.5rem 1.5rem;
+}
+
+.login-card h5 {
+    font-size: 1.05rem;
+}
+
+.login-card .mb-3 {
+    margin-bottom: 0.65rem;
+}
+
+.login-card .mb-4 {
+    margin-bottom: 0.85rem;
+}
+
+.login-card .form-label {
+    font-size: 0.75rem;
+    margin-bottom: 0.25rem;
+}
+
+.login-card .form-control {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+}
+
+.login-card .btn-primary {
+    padding: 0.55rem 1rem;
+    font-size: 0.9rem;
+}
+
+.login-card hr {
+    margin: 0.75rem 0;
+}
+
+.login-card .btn-outline-secondary {
+    font-size: 0.78rem;
+    padding: 0.3rem 0.5rem;
 }
 
 /* ---- STATUS COLORS ---- */
@@ -422,34 +463,55 @@ html {
 
 /* ---- LOGIN RESPONSIVE ---- */
 @media (max-width: 575.98px) {
+    .login-wrapper {
+        padding: 0.5rem;
+        align-items: flex-start;
+        padding-top: max(0.5rem, env(safe-area-inset-top));
+    }
+
     .login-card {
-        margin: 0.75rem;
         max-width: 100%;
         border-radius: 0.75rem;
     }
 
     .login-header {
-        padding: 1.5rem 1rem 1rem;
+        padding: 1.25rem 1rem 0.85rem;
     }
 
     .login-header .login-icon {
-        font-size: 2.2rem;
+        font-size: 2rem;
     }
 
     .login-header h3 {
-        font-size: 1.25rem;
-    }
-
-    .login-header p {
-        font-size: 0.75rem;
+        font-size: 1.15rem;
     }
 
     .login-card .card-body {
-        padding: 1rem !important;
+        padding: 0.85rem 1rem 1rem !important;
+    }
+
+    .login-card h5 {
+        font-size: 0.95rem;
+        margin-bottom: 0.5rem !important;
+    }
+
+    .login-card .form-control {
+        padding: 0.45rem 0.65rem;
+        font-size: 0.85rem;
+    }
+
+    .login-card .btn-primary {
+        padding: 0.5rem;
+        font-size: 0.85rem;
     }
 
     .login-card .table {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
+    }
+
+    .login-card .table th,
+    .login-card .table td {
+        padding: 0.3rem 0.4rem;
     }
 }
 
