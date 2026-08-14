@@ -1,40 +1,33 @@
 ---
 Task ID: 1
-Agent: Main Agent
-Task: Generate Police Department Digital Transformation Proposal PDF
+Agent: Super Z (main)
+Task: Implement Real Police System - Authentication, RBAC, Audit Trail, Case Teams, Evidence Chain of Custody, Consultation Requests
 
 Work Log:
-- Analyzed user request: Type 1 document creation (professional proposal PDF)
-- Loaded PDF skill (SKILL.md, briefs/report.md, configs/fonts.md, typesetting/cover.md, overflow.md, fill-engine.md)
-- Generated cascade palette (Authority intent, formal mode, purple accent scheme)
-- Wrote ReportLab script with 12 sections covering 4 automation modules
-- Created cover page HTML using Template 01 (HUD Data Terminal) for government proposal
-- Validated cover with poster_validate.py and cover_validate.js
-- Rendered cover via html2poster.js, body via ReportLab
-- Merged cover + body PDFs with pypdf (scaled cover to exact A4)
-- Ran pdf_qa.py quality check: 11/11 checks passed, 2 non-blocking warnings
+- Added User, AuditLog, CaseTeamMember, EvidenceItem, EvidenceCustody, ConsultationRequest models to Prisma schema with Role enum
+- Created auth.ts with bcrypt password hashing, role hierarchy (CLERK=1, INVESTIGATOR=2, STATION_COMMANDER=3, ADMIN=4)
+- Created audit.ts with logAudit utility recording timestamp, user, IP, user agent, and change details
+- Created rbac.ts with requireAuth, requireRole, and requireCaseAccess (need-to-know enforcement)
+- Upgraded from next-auth v4 to v5 (Auth.js v5 beta.32) to fix Next.js 16 compatibility
+- Created login page at /login with demo account autofill and Suspense boundary
+- Added SessionProvider via auth-provider.tsx wrapper component
+- Added middleware.ts for route protection (redirects to /login or returns 401)
+- Updated ALL 12+ API routes with authentication checks
+- Implemented need-to-know: investigators see only their assigned cases in /api/firs and /api/dashboard
+- Investigation notes are now append-only (no PUT/DELETE endpoints), officer name set from session
+- Created /api/case-team (POST/DELETE) for managing case team members
+- Created /api/evidence (POST/PUT) for evidence items and custody transfer chain
+- Created /api/consultations (GET/POST/PATCH) for requesting and approving temporary case access
+- Created /api/audit-logs (GET) with pagination and filtering (commander+ only)
+- Created /api/users (GET/POST/PATCH) for admin-only user management
+- Seeded 5 demo user accounts with unique bcrypt-hashed passwords
+- Fixed build errors (Google Fonts timeout, Suspense boundary, deprecated middleware warning)
+- Fixed CSRF validation (AUTH_TRUST_HOST=true, proper cookie forwarding in Auth.js v5)
+- Verified all tests pass: admin sees 8 cases, investigator sees 2 cases, audit logs recorded
+- Pushed to GitHub
 
 Stage Summary:
-- Final PDF: /home/z/my-project/download/Police_Department_Automation_Proposal.pdf
-- 17 pages, 142.4 KB, A4 format
-- Sections: TOC, Executive Summary, Challenges (4 subsections), Solution Overview, 4 Module Details, Implementation Plan, Tech Stack, Pricing, Why Us, Next Steps
-- Cover: HUD-style with grid pattern, anchor line, purple accent block
-
----
-Task ID: 2
-Agent: Main Agent + Subagents
-Task: Implement Police Department Automation System - all 4 modules
-
-Work Log:
-- Designed Prisma schema with 10 models: FIR, InvestigationNote, Officer, Attendance, DutyAssignment, LeaveRequest, Vehicle, VehicleAssignment, FuelLog, Equipment
-- Created seed data: 8 officers, 8 FIRs, 5 investigation notes, 5 vehicles, 8 equipment items, 7 days attendance, duty assignments, leave requests, fuel logs
-- Built 15 API routes covering all CRUD operations for all 4 modules plus dashboard
-- Built complete single-page UI (1382 lines) with sidebar navigation across 7 views
-- Verified all modules with agent-browser: Dashboard, Cases, Personnel, Duty, Leave, Vehicles, Equipment, Reports
-- Zero browser console errors
-
-Stage Summary:
-- All 4 modules fully functional with demo data
-- Modules: FIR/Case Management, Staff/Duty Management, Automated Reporting, Vehicle/Equipment Tracking
-- 15 API endpoints, 10 database models, 7 UI views
-- Application running at localhost:3000
+- Full real police system implemented and tested
+- 5 demo accounts: admin/admin123, commander/cmd123, abebe/abebe123, haile/haile123, clerk1/clerk123
+- Who registers actors: ONLY the System Admin (via /api/users) — verified and enforced
+- All changes pushed to https://github.com/addefakam/policeOfficeAutomation
