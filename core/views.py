@@ -39,7 +39,7 @@ def _check_db():
 def _auto_migrate():
     """Run migrations + seed. Called when DB tables are missing."""
     from django.core.management import call_command
-    call_command('migrate', verbosity=0, interactive=False)
+    call_command('migrate', verbosity=0, interactive=False, run_syncdb=True)
     from seed_data import seed
     seed()
 

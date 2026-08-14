@@ -34,7 +34,7 @@ def _ensure_tables():
         if not exists:
             logger.info('[PDMS] Tables missing — running migrations...')
             from django.core.management import call_command
-            call_command('migrate', verbosity=0, interactive=False)
+            call_command('migrate', verbosity=0, interactive=False, run_syncdb=True)
             logger.info('[PDMS] Migrations done — seeding...')
             from seed_data import seed
             seed()
