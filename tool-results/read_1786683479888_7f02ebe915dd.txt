@@ -1,0 +1,748 @@
+     1→     1→from django.shortcuts import render, redirect, get_object_or_404
+     2→     2→from django.contrib.auth import authenticate, login, logout
+     3→     3→from django.contrib.auth.decorators import login_required
+     4→     4→from django.http import JsonResponse, HttpResponse
+     5→     5→from django.db.models import Count, Q, Sum, Avg, F, Func, IntegerField, Subquery, OuterRef
+     6→     6→from django.utils import timezone
+     7→     7→from django.views.decorators.http import require_POST
+     8→     8→from django.db.models.functions import TruncMonth, TruncDate
+     9→     9→from django.contrib import messages
+    10→    10→import csv
+    11→    11→import json
+    12→    12→from datetime import timedelta
+    13→    13→
+    14→    14→from .models import (
+    15→    15→    FIR, InvestigationNote, Officer, Attendance, DutyAssignment,
+    16→    16→    LeaveRequest, Vehicle, VehicleAssignment, FuelLog, Equipment, User
+    17→    17→)
+    18→    18→from .forms import (FIRForm, InvestigationNoteForm, LeaveRequestForm, FuelLogForm,
+    19→    19→                    CustomLoginForm, VehicleAssignmentForm, VehicleReturnForm,
+    20→    20→                    EquipmentIssuanceForm, EquipmentReturnForm)
+    21→    21→from .decorators import role_required, require_investigator_or_above, require_commander_or_above, require_admin
+    22→    22→
+    23→    23→
+    24→    24→# ============ AUTH ============
+    25→    25→
+    26→    26→def login_view(request):
+    27→    27→    if request.user.is_authenticated:
+    28→    28→        return redirect('dashboard')
+    29→    29→    if request.method == 'POST':
+    30→    30→        form = CustomLoginForm(request, data=request.POST)
+    31→    31→        if form.is_valid():
+    32→    32→            user = form.get_user()
+    33→    33→            login(request, user)
+    34→    34→            next_url = request.GET.get('next', '/dashboard/')
+    35→    35→            return redirect(next_url)
+    36→    36→    else:
+    37→    37→        form = CustomLoginForm()
+    38→    38→    return render(request, 'base/login.html', {'form': form})
+    39→    39→
+    40→    40→
+    41→    41→def logout_view(request):
+    42→    42→    logout(request)
+    43→    43→    return redirect('login')
+    44→    44→
+    45→    45→
+    46→    46→# ============ DASHBOARD ============
+    47→    47→
+    48→    48→@login_required
+    49→    49→def dashboard_view(request):
+    50→    50→    total_firs = FIR.objects.count()
+    51→    51→    open_cases = FIR.objects.filter(status='open').count()
+    52→    52→    under_investigation = FIR.objects.filter(status='under_investigation').count()
+    53→    53→    closed_cases = FIR.objects.filter(status='closed').count()
+    54→    54→    total_officers = Officer.objects.filter(is_active=True).count()
+    55→    55→    vehicles_available = Vehicle.objects.filter(status='available').count()
+    56→    56→    vehicles_total = Vehicle.objects.count()
+    57→    57→    pending_leaves = LeaveRequest.objects.filter(status='pending').count()
+    58→    58→    equipment_issued = Equipment.objects.filter(status='issued').count()
+    59→    59→    equipment_total = Equipment.objects.count()
+    60→    60→
+    61→    61→    recent_firs = FIR.objects.all()[:5]
+    62→    62→    recent_notes = InvestigationNote.objects.select_related('fir', 'author').order_by('-created_at')[:5]
+    63→    63→
+    64→    64→    crime_categories = FIR.objects.values('crime_category').annotate(count=Count('id')).order_by('-count')[:6]
+    65→    65→
+    66→    66→    six_months_ago = timezone.now() - timedelta(days=180)
+    67→    67→    monthly_firs = FIR.objects.filter(
+    68→    68→        created_at__gte=six_months_ago
+    69→    69→    ).annotate(
+    70→    70→        month=TruncMonth('created_at')
+    71→    71→    ).values('month').annotate(count=Count('id')).order_by('month')
+    72→    72→
+    73→    73→    priority_dist = FIR.objects.values('priority').annotate(count=Count('id'))
+    74→    74→    status_dist = FIR.objects.values('status').annotate(count=Count('id'))
+    75→    75→
+    76→    76→    context = {
+    77→    77→        'total_firs': total_firs, 'open_cases': open_cases,
+    78→    78→        'under_investigation': under_investigation, 'closed_cases': closed_cases,
+    79→    79→        'total_officers': total_officers, 'vehicles_available': vehicles_available,
+    80→    80→        'vehicles_total': vehicles_total, 'pending_leaves': pending_leaves,
+    81→    81→        'equipment_issued': equipment_issued, 'equipment_total': equipment_total,
+    82→    82→        'recent_firs': recent_firs, 'recent_notes': recent_notes,
+    83→    83→        'crime_categories': list(crime_categories),
+    84→    84→        'monthly_firs': list(monthly_firs),
+    85→    85→        'priority_dist': list(priority_dist),
+    86→    86→        'status_dist': list(status_dist),
+    87→    87→        'page_title': 'Dashboard',
+    88→    88→    }
+    89→    89→    return render(request, 'base/dashboard.html', context)
+    90→    90→
+    91→    91→
+    92→    92→# ============ MODULE 1: FIR & CASE MANAGEMENT ============
+    93→    93→
+    94→    94→@login_required
+    95→    95→def case_list_view(request):
+    96→    96→    firs = FIR.objects.select_related('assigned_to', 'created_by').all()
+    97→    97→
+    98→    98→    status_filter = request.GET.get('status', '')
+    99→    99→    priority_filter = request.GET.get('priority', '')
+   100→   100→    category_filter = request.GET.get('category', '')
+   101→   101→    search_query = request.GET.get('q', '')
+   102→   102→    date_from = request.GET.get('date_from', '')
+   103→   103→    date_to = request.GET.get('date_to', '')
+   104→   104→
+   105→   105→    if status_filter:
+   106→   106→        firs = firs.filter(status=status_filter)
+   107→   107→    if priority_filter:
+   108→   108→        firs = firs.filter(priority=priority_filter)
+   109→   109→    if category_filter:
+   110→   110→        firs = firs.filter(crime_category=category_filter)
+   111→   111→    if search_query:
+   112→   112→        firs = firs.filter(
+   113→   113→            Q(fir_number__icontains=search_query) |
+   114→   114→            Q(complainant_name__icontains=search_query) |
+   115→   115→            Q(incident_location__icontains=search_query) |
+   116→   116→            Q(description__icontains=search_query)
+   117→   117→        )
+   118→   118→    if date_from:
+   119→   119→        firs = firs.filter(incident_date__date__gte=date_from)
+   120→   120→    if date_to:
+   121→   121→        firs = firs.filter(incident_date__date__lte=date_to)
+   122→   122→
+   123→   123→    categories = FIR.objects.values_list('crime_category', flat=True).distinct().order_by('crime_category')
+   124→   124→
+   125→   125→    context = {
+   126→   126→        'firs': firs,
+   127→   127→        'status_filter': status_filter, 'priority_filter': priority_filter,
+   128→   128→        'category_filter': category_filter, 'search_query': search_query,
+   129→   129→        'date_from': date_from, 'date_to': date_to,
+   130→   130→        'categories': categories,
+   131→   131→        'page_title': 'FIR & Case Management',
+   132→   132→        'status_choices': FIR.STATUS_CHOICES,
+   133→   133→        'priority_choices': FIR.PRIORITY_CHOICES,
+   134→   134→    }
+   135→   135→    return render(request, 'fir/case_list.html', context)
+   136→   136→
+   137→   137→
+   138→   138→@login_required
+   139→   139→def fir_create_view(request):
+   140→   140→    # All authenticated users (clerk+) can register FIRs
+   141→   141→    if request.method == 'POST':
+   142→   142→        form = FIRForm(request.POST)
+   143→   143→        if form.is_valid():
+   144→   144→            fir = form.save(commit=False)
+   145→   145→            fir.created_by = request.user
+   146→   146→            fir.save()
+   147→   147→            return redirect('case_detail', fir_id=fir.id)
+   148→   148→    else:
+   149→   149→        form = FIRForm()
+   150→   150→    return render(request, 'fir/fir_form.html', {
+   151→   151→        'form': form, 'page_title': 'Register New FIR'
+   152→   152→    })
+   153→   153→
+   154→   154→
+   155→   155→@login_required
+   156→   156→def case_detail_view(request, fir_id):
+   157→   157→    fir = get_object_or_404(FIR.objects.select_related('assigned_to', 'created_by'), pk=fir_id)
+   158→   158→    notes = fir.notes.select_related('author').all()
+   159→   159→    note_form = InvestigationNoteForm()
+   160→   160→
+   161→   161→    timeline = notes.values('note_type', 'content', 'created_at', 'author__username').order_by('created_at')
+   162→   162→
+   163→   163→    investigators = User.objects.filter(
+   164→   164→        role__in=['investigator', 'station_commander', 'admin'], is_active=True
+   165→   165→    )
+   166→   166→
+   167→   167→    context = {
+   168→   168→        'fir': fir, 'notes': notes, 'note_form': note_form,
+   169→   169→        'timeline': timeline, 'investigators': investigators,
+   170→   170→        'page_title': f'Case {fir.fir_number}',
+   171→   171→    }
+   172→   172→    return render(request, 'fir/case_detail.html', context)
+   173→   173→
+   174→   174→
+   175→   175→@require_investigator_or_above
+   176→   176→def fir_edit_view(request, fir_id):
+   177→   177→    fir = get_object_or_404(FIR, pk=fir_id)
+   178→   178→    if request.method == 'POST':
+   179→   179→        form = FIRForm(request.POST, instance=fir)
+   180→   180→        if form.is_valid():
+   181→   181→            form.save()
+   182→   182→            return redirect('case_detail', fir_id=fir.id)
+   183→   183→    else:
+   184→   184→        form = FIRForm(instance=fir)
+   185→   185→    return render(request, 'fir/fir_form.html', {
+   186→   186→        'form': form, 'page_title': f'Edit {fir.fir_number}', 'fir': fir
+   187→   187→    })
+   188→   188→
+   189→   189→
+   190→   190→@require_POST
+   191→   191→@require_investigator_or_above
+   192→   192→def add_investigation_note(request, fir_id):
+   193→   193→    fir = get_object_or_404(FIR, pk=fir_id)
+   194→   194→    form = InvestigationNoteForm(request.POST)
+   195→   195→    if form.is_valid():
+   196→   196→        note = form.save(commit=False)
+   197→   197→        note.fir = fir
+   198→   198→        note.author = request.user
+   199→   199→        note.save()
+   200→   200→        if note.note_type == 'evidence_found':
+   201→   201→            fir.status = 'under_investigation'
+   202→   202→            fir.save()
+   203→   203→        elif note.note_type == 'case_closed':
+   204→   204→            fir.status = 'closed'
+   205→   205→            fir.save()
+   206→   206→    return redirect('case_detail', fir_id=fir_id)
+   207→   207→
+   208→   208→
+   209→   209→@require_POST
+   210→   210→@require_commander_or_above
+   211→   211→def transfer_case_view(request, fir_id):
+   212→   212→    fir = get_object_or_404(FIR, pk=fir_id)
+   213→   213→    new_officer_id = request.POST.get('assigned_to')
+   214→   214→    if new_officer_id:
+   215→   215→        new_officer = get_object_or_404(User, pk=new_officer_id)
+   216→   216→        fir.assigned_to = new_officer
+   217→   217→        fir.status = 'under_investigation'
+   218→   218→        fir.save()
+   219→   219→        InvestigationNote.objects.create(
+   220→   220→            fir=fir, author=request.user,
+   221→   221→            note_type='transfer',
+   222→   222→            content=f"Case transferred to {new_officer.get_full_name()} by {request.user.get_full_name()}"
+   223→   223→        )
+   224→   224→    return redirect('case_detail', fir_id=fir_id)
+   225→   225→
+   226→   226→
+   227→   227→# ============ MODULE 2: STAFF & DUTY MANAGEMENT ============
+   228→   228→
+   229→   229→@login_required
+   230→   230→def personnel_list_view(request):
+   231→   231→    officers = Officer.objects.filter(is_active=True).select_related('user')
+   232→   232→    search_query = request.GET.get('q', '')
+   233→   233→    rank_filter = request.GET.get('rank', '')
+   234→   234→    dept_filter = request.GET.get('department', '')
+   235→   235→
+   236→   236→    if search_query:
+   237→   237→        officers = officers.filter(
+   238→   238→            Q(full_name__icontains=search_query) |
+   239→   239→            Q(badge_number__icontains=search_query) |
+   240→   240→            Q(department__icontains=search_query)
+   241→   241→        )
+   242→   242→    if rank_filter:
+   243→   243→        officers = officers.filter(rank=rank_filter)
+   244→   244→    if dept_filter:
+   245→   245→        officers = officers.filter(department__icontains=dept_filter)
+   246→   246→
+   247→   247→    departments = Officer.objects.values_list('department', flat=True).distinct().order_by('department')
+   248→   248→
+   249→   249→    context = {
+   250→   250→        'officers': officers, 'search_query': search_query,
+   251→   251→        'rank_filter': rank_filter, 'dept_filter': dept_filter,
+   252→   252→        'departments': departments,
+   253→   253→        'rank_choices': Officer.RANK_CHOICES,
+   254→   254→        'page_title': 'Personnel Management',
+   255→   255→    }
+   256→   256→    return render(request, 'staff/personnel_list.html', context)
+   257→   257→
+   258→   258→
+   259→   259→@login_required
+   260→   260→def personnel_detail_view(request, officer_id):
+   261→   261→    officer = get_object_or_404(Officer.objects.select_related('user'), pk=officer_id)
+   262→   262→    attendances = officer.attendances.all().order_by('-date')[:30]
+   263→   263→    duty_assignments = officer.duty_assignments.all().order_by('-date')[:20]
+   264→   264→    leave_requests = officer.leave_requests.all().order_by('-created_at')[:10]
+   265→   265→    vehicle_assignments = officer.vehicle_assignments.select_related('vehicle').all().order_by('-assigned_date')[:10]
+   266→   266→    equipment_items = officer.equipment.all()
+   267→   267→
+   268→   268→    context = {
+   269→   269→        'officer': officer, 'attendances': attendances,
+   270→   270→        'duty_assignments': duty_assignments, 'leave_requests': leave_requests,
+   271→   271→        'vehicle_assignments': vehicle_assignments, 'equipment_items': equipment_items,
+   272→   272→        'page_title': f'Officer: {officer.full_name}',
+   273→   273→    }
+   274→   274→    return render(request, 'staff/personnel_detail.html', context)
+   275→   275→
+   276→   276→
+   277→   277→@login_required
+   278→   278→def duty_roster_view(request):
+   279→   279→    today = timezone.now().date()
+   280→   280→    date_filter = request.GET.get('date', str(today))
+   281→   281→    shift_filter = request.GET.get('shift', '')
+   282→   282→
+   283→   283→    try:
+   284→   284→        filter_date = timezone.datetime.strptime(date_filter, '%Y-%m-%d').date()
+   285→   285→    except (ValueError, TypeError):
+   286→   286→        filter_date = today
+   287→   287→
+   288→   288→    assignments = DutyAssignment.objects.filter(date=filter_date).select_related('officer', 'created_by')
+   289→   289→    if shift_filter:
+   290→   290→        assignments = assignments.filter(shift=shift_filter)
+   291→   291→
+   292→   292→    morning = assignments.filter(shift='morning')
+   293→   293→    afternoon = assignments.filter(shift='afternoon')
+   294→   294→    night = assignments.filter(shift='night')
+   295→   295→
+   296→   296→    assigned_officer_ids = assignments.values_list('officer_id', flat=True)
+   297→   297→    unassigned = Officer.objects.filter(is_active=True).exclude(id__in=assigned_officer_ids)
+   298→   298→
+   299→   299→    context = {
+   300→   300→        'filter_date': filter_date, 'shift_filter': shift_filter,
+   301→   301→        'morning': morning, 'afternoon': afternoon, 'night': night,
+   302→   302→        'unassigned': unassigned, 'total_assigned': assignments.count(),
+   303→   303→        'total_officers': Officer.objects.filter(is_active=True).count(),
+   304→   304→        'page_title': 'Duty Roster',
+   305→   305→    }
+   306→   306→    return render(request, 'staff/duty_roster.html', context)
+   307→   307→
+   308→   308→
+   309→   309→@login_required
+   310→   310→def leave_management_view(request):
+   311→   311→    leaves = LeaveRequest.objects.select_related('officer', 'approved_by').all()
+   312→   312→    status_filter = request.GET.get('status', '')
+   313→   313→    type_filter = request.GET.get('type', '')
+   314→   314→
+   315→   315→    if status_filter:
+   316→   316→        leaves = leaves.filter(status=status_filter)
+   317→   317→    if type_filter:
+   318→   318→        leaves = leaves.filter(leave_type=type_filter)
+   319→   319→
+   320→   320→    form = LeaveRequestForm()
+   321→   321→    pending_count = LeaveRequest.objects.filter(status='pending').count()
+   322→   322→
+   323→   323→    context = {
+   324→   324→        'leaves': leaves, 'form': form,
+   325→   325→        'status_filter': status_filter, 'type_filter': type_filter,
+   326→   326→        'pending_count': pending_count,
+   327→   327→        'page_title': 'Leave Management',
+   328→   328→    }
+   329→   329→    return render(request, 'staff/leave_management.html', context)
+   330→   330→
+   331→   331→
+   332→   332→@require_POST
+   333→   333→@require_commander_or_above
+   334→   334→def approve_leave(request, leave_id):
+   335→   335→    leave = get_object_or_404(LeaveRequest, pk=leave_id)
+   336→   336→    leave.status = 'approved'
+   337→   337→    leave.approved_by = request.user
+   338→   338→    leave.processed_at = timezone.now()
+   339→   339→    leave.save()
+   340→   340→    return redirect('leave_management')
+   341→   341→
+   342→   342→
+   343→   343→@require_POST
+   344→   344→@require_commander_or_above
+   345→   345→def reject_leave(request, leave_id):
+   346→   346→    leave = get_object_or_404(LeaveRequest, pk=leave_id)
+   347→   347→    leave.status = 'rejected'
+   348→   348→    leave.approved_by = request.user
+   349→   349→    leave.processed_at = timezone.now()
+   350→   350→    leave.save()
+   351→   351→    return redirect('leave_management')
+   352→   352→
+   353→   353→
+   354→   354→@login_required
+   355→   355→def attendance_view(request):
+   356→   356→    today = timezone.now().date()
+   357→   357→    date_filter = request.GET.get('date', str(today))
+   358→   358→    status_filter = request.GET.get('status', '')
+   359→   359→
+   360→   360→    try:
+   361→   361→        filter_date = timezone.datetime.strptime(date_filter, '%Y-%m-%d').date()
+   362→   362→    except (ValueError, TypeError):
+   363→   363→        filter_date = today
+   364→   364→
+   365→   365→    attendances = Attendance.objects.filter(date=filter_date).select_related('officer')
+   366→   366→    if status_filter:
+   367→   367→        attendances = attendances.filter(status=status_filter)
+   368→   368→
+   369→   369→    total_present = Attendance.objects.filter(date=filter_date, status='present').count()
+   370→   370→    total_officers = Officer.objects.filter(is_active=True).count()
+   371→   371→
+   372→   372→    context = {
+   373→   373→        'attendances': attendances, 'filter_date': filter_date,
+   374→   374→        'status_filter': status_filter,
+   375→   375→        'total_present': total_present, 'total_officers': total_officers,
+   376→   376→        'page_title': 'Attendance',
+   377→   377→    }
+   378→   378→    return render(request, 'staff/attendance.html', context)
+   379→   379→
+   380→   380→
+   381→   381→# ============ MODULE 3: AUTOMATED REPORTING ============
+   382→   382→
+   383→   383→@login_required
+   384→   384→def reports_view(request):
+   385→   385→    report_type = request.GET.get('type', 'overview')
+   386→   386→    period = request.GET.get('period', 'month')
+   387→   387→
+   388→   388→    today = timezone.now().date()
+   389→   389→    if period == 'week':
+   390→   390→        start_date = today - timedelta(days=7)
+   391→   391→    elif period == 'month':
+   392→   392→        start_date = today - timedelta(days=30)
+   393→   393→    elif period == 'quarter':
+   394→   394→        start_date = today - timedelta(days=90)
+   395→   395→    elif period == 'year':
+   396→   396→        start_date = today - timedelta(days=365)
+   397→   397→    else:
+   398→   398→        start_date = today - timedelta(days=30)
+   399→   399→
+   400→   400→    firs_in_period = FIR.objects.filter(created_at__date__gte=start_date)
+   401→   401→    total_firs_period = firs_in_period.count()
+   402→   402→    resolved = firs_in_period.filter(status='closed').count()
+   403→   403→    resolution_rate = round((resolved / total_firs_period * 100), 1) if total_firs_period > 0 else 0
+   404→   404→
+   405→   405→    category_stats = firs_in_period.values('crime_category').annotate(
+   406→   406→        count=Count('id'),
+   407→   407→        closed_count=Count('id', filter=Q(status='closed'))
+   408→   408→    ).order_by('-count')
+   409→   409→
+   410→   410→    monthly_trend = FIR.objects.filter(
+   411→   411→        created_at__date__gte=start_date
+   412→   412→    ).annotate(
+   413→   413→        month=TruncMonth('created_at')
+   414→   414→    ).values('month').annotate(
+   415→   415→        total=Count('id'),
+   416→   416→        closed=Count('id', filter=Q(status='closed'))
+   417→   417→    ).order_by('month')
+   418→   418→
+   419→   419→    priority_stats = firs_in_period.values('priority').annotate(count=Count('id')).order_by('-count')
+   420→   420→
+   421→   421→    avg_attendance = Attendance.objects.filter(date__gte=start_date, status='present').count()
+   422→   422→    total_leave_days = LeaveRequest.objects.filter(
+   423→   423→        status='approved', start_date__gte=start_date
+   424→   424→    ).annotate(days=F('end_date') - F('start_date')).aggregate(total=Sum('days'))
+   425→   425→
+   426→   426→    total_fuel_cost = FuelLog.objects.filter(date__gte=start_date).aggregate(
+   427→   427→        total=Sum(F('liters') * F('cost_per_liter'))
+   428→   428→    )['total'] or 0
+   429→   429→
+   430→   430→    vehicles_in_maintenance = Vehicle.objects.filter(status='maintenance').count()
+   431→   431→
+   432→   432→    context = {
+   433→   433→        'report_type': report_type, 'period': period,
+   434→   434→        'start_date': start_date, 'today': today,
+   435→   435→        'total_firs_period': total_firs_period, 'resolved': resolved,
+   436→   436→        'resolution_rate': resolution_rate,
+   437→   437→        'category_stats': list(category_stats),
+   438→   438→        'monthly_trend': list(monthly_trend),
+   439→   439→        'priority_stats': list(priority_stats),
+   440→   440→        'total_fuel_cost': total_fuel_cost,
+   441→   441→        'vehicles_in_maintenance': vehicles_in_maintenance,
+   442→   442→        'page_title': 'Reports & Analytics',
+   443→   443→    }
+   444→   444→    return render(request, 'reports/reports.html', context)
+   445→   445→
+   446→   446→
+   447→   447→@require_commander_or_above
+   448→   448→def export_fir_report(request):
+   449→   449→    response = HttpResponse(content_type='text/csv')
+   450→   450→    response['Content-Disposition'] = 'attachment; filename="fir_report.csv"'
+   451→   451→    writer = csv.writer(response)
+   452→   452→    writer.writerow(['FIR Number', 'Complainant', 'Category', 'Priority', 'Status', 'Date', 'Location', 'Assigned To'])
+   453→   453→    for fir in FIR.objects.select_related('assigned_to').all():
+   454→   454→        writer.writerow([
+   455→   455→            fir.fir_number, fir.complainant_name, fir.crime_category,
+   456→   456→            fir.priority, fir.status, fir.incident_date.strftime('%Y-%m-%d %H:%M'),
+   457→   457→            fir.incident_location, fir.assigned_to.get_full_name() if fir.assigned_to else 'Unassigned'
+   458→   458→        ])
+   459→   459→    return response
+   460→   460→
+   461→   461→
+   462→   462→@require_commander_or_above
+   463→   463→def export_crime_stats(request):
+   464→   464→    stats = FIR.objects.values('crime_category').annotate(
+   465→   465→        total=Count('id'),
+   466→   466→        open_count=Count('id', filter=Q(status='open')),
+   467→   467→        closed_count=Count('id', filter=Q(status='closed')),
+   468→   468→        under_investigation=Count('id', filter=Q(status='under_investigation')),
+   469→   469→    ).order_by('-total')
+   470→   470→    response = HttpResponse(content_type='text/csv')
+   471→   471→    response['Content-Disposition'] = 'attachment; filename="crime_statistics.csv"'
+   472→   472→    writer = csv.writer(response)
+   473→   473→    writer.writerow(['Crime Category', 'Total Cases', 'Open', 'Under Investigation', 'Closed'])
+   474→   474→    for s in stats:
+   475→   475→        writer.writerow([s['crime_category'], s['total'], s['open_count'], s['under_investigation'], s['closed_count']])
+   476→   476→    return response
+   477→   477→
+   478→   478→
+   479→   479→# ============ MODULE 4: VEHICLE & EQUIPMENT TRACKING ============
+   480→   480→
+   481→   481→@login_required
+   482→   482→def vehicle_list_view(request):
+   483→   483→    vehicles = Vehicle.objects.all()
+   484→   484→    status_filter = request.GET.get('status', '')
+   485→   485→    type_filter = request.GET.get('type', '')
+   486→   486→    search_query = request.GET.get('q', '')
+   487→   487→
+   488→   488→    if status_filter:
+   489→   489→        vehicles = vehicles.filter(status=status_filter)
+   490→   490→    if type_filter:
+   491→   491→        vehicles = vehicles.filter(vehicle_type=type_filter)
+   492→   492→    if search_query:
+   493→   493→        vehicles = vehicles.filter(
+   494→   494→            Q(vehicle_number__icontains=search_query) |
+   495→   495→            Q(make__icontains=search_query) |
+   496→   496→            Q(model__icontains=search_query)
+   497→   497→        )
+   498→   498→
+   499→   499→    status_counts = {s: Vehicle.objects.filter(status=s).count() for s, _ in Vehicle.STATUS_CHOICES}
+   500→   500→
+   501→   501→    active_assignments = VehicleAssignment.objects.filter(
+   502→   502→        vehicle=OuterRef('pk'), returned_date__isnull=True
+   503→   503→    ).select_related('officer').order_by('-assigned_date')
+   504→   504→
+   505→   505→    vehicles = vehicles.annotate(
+   506→   506→        _assignee_name=Subquery(active_assignments.values('officer__full_name')[:1]),
+   507→   507→        _assignee_id=Subquery(active_assignments.values('officer__id')[:1]),
+   508→   508→        _assigned_date=Subquery(active_assignments.values('assigned_date')[:1]),
+   509→   509→    )
+   510→   510→
+   511→   511→    vehicle_list = []
+   512→   512→    for v in vehicles:
+   513→   513→        v.current_assignee = None
+   514→   514→        if v._assignee_name:
+   515→   515→            v.current_assignee = {
+   516→   516→                'officer_name': v._assignee_name,
+   517→   517→                'officer_id': v._assignee_id,
+   518→   518→                'assigned_date': v._assigned_date,
+   519→   519→            }
+   520→   520→        vehicle_list.append(v)
+   521→   521→
+   522→   522→    context = {
+   523→   523→        'vehicles': vehicle_list, 'status_filter': status_filter,
+   524→   524→        'type_filter': type_filter, 'search_query': search_query,
+   525→   525→        'status_counts': status_counts,
+   526→   526→        'page_title': 'Vehicle Fleet',
+   527→   527→    }
+   528→   528→    return render(request, 'vehicles/vehicle_list.html', context)
+   529→   529→
+   530→   530→
+   531→   531→@login_required
+   532→   532→def vehicle_detail_view(request, vehicle_id):
+   533→   533→    vehicle = get_object_or_404(Vehicle, pk=vehicle_id)
+   534→   534→    assignments = vehicle.assignments.select_related('officer').order_by('-assigned_date')[:20]
+   535→   535→    fuel_logs = vehicle.fuel_logs.all().order_by('-date')[:20]
+   536→   536→    fuel_form = FuelLogForm()
+   537→   537→    total_fuel_cost = vehicle.fuel_logs.aggregate(
+   538→   538→        total=Sum(F('liters') * F('cost_per_liter'))
+   539→   539→    )['total'] or 0
+   540→   540→    total_liters = vehicle.fuel_logs.aggregate(total=Sum('liters'))['total'] or 0
+   541→   541→
+   542→   542→    active_assignment = VehicleAssignment.objects.filter(
+   543→   543→        vehicle=vehicle, returned_date__isnull=True
+   544→   544→    ).select_related('officer').first()
+   545→   545→
+   546→   546→    officers = Officer.objects.filter(is_active=True).order_by('full_name')
+   547→   547→
+   548→   548→    context = {
+   549→   549→        'vehicle': vehicle, 'assignments': assignments,
+   550→   550→        'fuel_logs': fuel_logs, 'fuel_form': fuel_form,
+   551→   551→        'total_fuel_cost': total_fuel_cost, 'total_liters': total_liters,
+   552→   552→        'active_assignment': active_assignment, 'officers': officers,
+   553→   553→        'page_title': f'Vehicle {vehicle.vehicle_number}',
+   554→   554→    }
+   555→   555→    return render(request, 'vehicles/vehicle_detail.html', context)
+   556→   556→
+   557→   557→
+   558→   558→@require_POST
+   559→   559→@require_commander_or_above
+   560→   560→def add_fuel_log(request, vehicle_id):
+   561→   561→    vehicle = get_object_or_404(Vehicle, pk=vehicle_id)
+   562→   562→    form = FuelLogForm(request.POST)
+   563→   563→    if form.is_valid():
+   564→   564→        log = form.save(commit=False)
+   565→   565→        log.vehicle = vehicle
+   566→   566→        log.save()
+   567→   567→    return redirect('vehicle_detail', vehicle_id=vehicle_id)
+   568→   568→
+   569→   569→
+   570→   570→@require_POST
+   571→   571→@require_commander_or_above
+   572→   572→def add_maintenance_log(request, vehicle_id):
+   573→   573→    vehicle = get_object_or_404(Vehicle, pk=vehicle_id)
+   574→   574→    vehicle.status = 'maintenance'
+   575→   575→    vehicle.last_service_date = timezone.now().date()
+   576→   576→    notes = request.POST.get('notes', 'Maintenance in progress')
+   577→   577→    vehicle.notes = notes
+   578→   578→    vehicle.save()
+   579→   579→    return redirect('vehicle_detail', vehicle_id=vehicle_id)
+   580→   580→
+   581→   581→
+   582→   582→@require_POST
+   583→   583→@require_commander_or_above
+   584→   584→def assign_vehicle(request, vehicle_id):
+   585→   585→    vehicle = get_object_or_404(Vehicle, pk=vehicle_id)
+   586→   586→    if vehicle.status == 'maintenance' or vehicle.status == 'out_of_service':
+   587→   587→        messages.error(request, f'Cannot assign {vehicle.vehicle_number} - it is currently {vehicle.get_status_display().lower()}.')
+   588→   588→        return redirect('vehicle_detail', vehicle_id=vehicle_id)
+   589→   589→
+   590→   590→    active_assignment = VehicleAssignment.objects.filter(vehicle=vehicle, returned_date__isnull=True).first()
+   591→   591→    if active_assignment:
+   592→   592→        messages.warning(request, f'{vehicle.vehicle_number} is already assigned to {active_assignment.officer.full_name}. Return it first before reassigning.')
+   593→   593→        return redirect('vehicle_detail', vehicle_id=vehicle_id)
+   594→   594→
+   595→   595→    form = VehicleAssignmentForm(request.POST)
+   596→   596→    if form.is_valid():
+   597→   597→        assignment = form.save(commit=False)
+   598→   598→        assignment.vehicle = vehicle
+   599→   599→        assignment.save()
+   600→   600→        vehicle.status = 'in_use'
+   601→   601→        vehicle.mileage = assignment.odometer_start or vehicle.mileage
+   602→   602→        vehicle.save()
+   603→   603→        messages.success(request, f'{vehicle.vehicle_number} assigned to {assignment.officer.full_name} successfully.')
+   604→   604→    else:
+   605→   605→        for field, errors in form.errors.items():
+   606→   606→            for error in errors:
+   607→   607→                messages.error(request, f'{field}: {error}')
+   608→   608→    return redirect('vehicle_detail', vehicle_id=vehicle_id)
+   609→   609→
+   610→   610→
+   611→   611→@require_POST
+   612→   612→@require_commander_or_above
+   613→   613→def return_vehicle(request, assignment_id):
+   614→   614→    assignment = get_object_or_404(VehicleAssignment, pk=assignment_id)
+   615→   615→    if assignment.returned_date:
+   616→   616→        messages.warning(request, 'This vehicle has already been returned.')
+   617→   617→        return redirect('vehicle_detail', vehicle_id=assignment.vehicle.id)
+   618→   618→
+   619→   619→    form = VehicleReturnForm(request.POST, instance=assignment)
+   620→   620→    if form.is_valid():
+   621→   621→        assignment = form.save(commit=False)
+   622→   622→        assignment.returned_date = assignment.returned_date or timezone.now().date()
+   623→   623→        assignment.save()
+   624→   624→        vehicle = assignment.vehicle
+   625→   625→        vehicle.status = 'available'
+   626→   626→        if assignment.odometer_end:
+   627→   627→            vehicle.mileage = assignment.odometer_end
+   628→   628→        vehicle.save()
+   629→   629→        messages.success(request, f'{vehicle.vehicle_number} returned successfully from {assignment.officer.full_name}.')
+   630→   630→    else:
+   631→   631→        for field, errors in form.errors.items():
+   632→   632→            for error in errors:
+   633→   633→                messages.error(request, f'{field}: {error}')
+   634→   634→    return redirect('vehicle_detail', vehicle_id=assignment.vehicle.id)
+   635→   635→
+   636→   636→
+   637→   637→@login_required
+   638→   638→def equipment_list_view(request):
+   639→   639→    equipment = Equipment.objects.select_related('issued_to').all()
+   640→   640→    category_filter = request.GET.get('category', '')
+   641→   641→    status_filter = request.GET.get('status', '')
+   642→   642→    search_query = request.GET.get('q', '')
+   643→   643→
+   644→   644→    if category_filter:
+   645→   645→        equipment = equipment.filter(category=category_filter)
+   646→   646→    if status_filter:
+   647→   647→        equipment = equipment.filter(status=status_filter)
+   648→   648→    if search_query:
+   649→   649→        equipment = equipment.filter(
+   650→   650→            Q(name__icontains=search_query) |
+   651→   651→            Q(equipment_id__icontains=search_query) |
+   652→   652→            Q(serial_number__icontains=search_query)
+   653→   653→        )
+   654→   654→
+   655→   655→    category_counts = {c: Equipment.objects.filter(category=c).count() for c, _ in Equipment.CATEGORY_CHOICES}
+   656→   656→    status_counts = {s: Equipment.objects.filter(status=s).count() for s, _ in Equipment.STATUS_CHOICES}
+   657→   657→
+   658→   658→    issuance_form = EquipmentIssuanceForm()
+   659→   659→    all_officers = Officer.objects.filter(is_active=True).order_by('full_name')
+   660→   660→
+   661→   661→    context = {
+   662→   662→        'equipment': equipment, 'category_filter': category_filter,
+   663→   663→        'status_filter': status_filter, 'search_query': search_query,
+   664→   664→        'category_counts': category_counts, 'status_counts': status_counts,
+   665→   665→        'issuance_form': issuance_form, 'all_officers': all_officers,
+   666→   666→        'page_title': 'Equipment Inventory',
+   667→   667→    }
+   668→   668→    return render(request, 'vehicles/equipment_list.html', context)
+   669→   669→
+   670→   670→
+   671→   671→@require_POST
+   672→   672→@require_commander_or_above
+   673→   673→def issue_equipment(request, equipment_id):
+   674→   674→    equipment = get_object_or_404(Equipment, pk=equipment_id)
+   675→   675→    if equipment.status != 'available':
+   676→   676→        messages.error(request, f'Cannot issue {equipment.name} - it is currently {equipment.get_status_display().lower()}.')
+   677→   677→        return redirect('equipment_list')
+   678→   678→
+   679→   679→    form = EquipmentIssuanceForm(request.POST)
+   680→   680→    if form.is_valid():
+   681→   681→        officer = form.cleaned_data['officer']
+   682→   682→        notes = form.cleaned_data.get('notes', '')
+   683→   683→        equipment.status = 'issued'
+   684→   684→        equipment.issued_to = officer
+   685→   685→        equipment.notes = notes
+   686→   686→        equipment.save()
+   687→   687→        messages.success(request, f'{equipment.name} ({equipment.equipment_id}) issued to {officer.full_name} successfully.')
+   688→   688→    else:
+   689→   689→        for field, errors in form.errors.items():
+   690→   690→            for error in errors:
+   691→   691→                messages.error(request, f'{field}: {error}')
+   692→   692→    return redirect('equipment_list')
+   693→   693→
+   694→   694→
+   695→   695→@require_POST
+   696→   696→@require_commander_or_above
+   697→   697→def return_equipment(request, equipment_id):
+   698→   698→    equipment = get_object_or_404(Equipment, pk=equipment_id)
+   699→   699→    if equipment.status != 'issued' or not equipment.issued_to:
+   700→   700→        messages.warning(request, f'{equipment.name} is not currently issued to anyone.')
+   701→   701→        return redirect('equipment_list')
+   702→   702→
+   703→   703→    form = EquipmentReturnForm(request.POST)
+   704→   704→    officer_name = equipment.issued_to.full_name
+   705→   705→    equipment.status = 'available'
+   706→   706→    equipment.issued_to = None
+   707→   707→    if form.is_valid() and form.cleaned_data.get('notes'):
+   708→   708→        equipment.notes = form.cleaned_data['notes']
+   709→   709→    equipment.save()
+   710→   710→    messages.success(request, f'{equipment.name} ({equipment.equipment_id}) returned successfully from {officer_name}.')
+   711→   711→    return redirect('equipment_list')
+   712→   712→
+   713→   713→
+   714→   714→# ============ API ENDPOINTS (JSON for charts) ============
+   715→   715→
+   716→   716→@login_required
+   717→   717→def api_dashboard_stats(request):
+   718→   718→    data = {
+   719→   719→        'total_firs': FIR.objects.count(),
+   720→   720→        'open_cases': FIR.objects.filter(status='open').count(),
+   721→   721→        'under_investigation': FIR.objects.filter(status='under_investigation').count(),
+   722→   722→        'closed_cases': FIR.objects.filter(status='closed').count(),
+   723→   723→        'total_officers': Officer.objects.filter(is_active=True).count(),
+   724→   724→        'vehicles_available': Vehicle.objects.filter(status='available').count(),
+   725→   725→        'vehicles_total': Vehicle.objects.count(),
+   726→   726→        'pending_leaves': LeaveRequest.objects.filter(status='pending').count(),
+   727→   727→    }
+   728→   728→    return JsonResponse(data)
+   729→   729→
+   730→   730→
+   731→   731→@login_required
+   732→   732→def api_cases_chart(request):
+   733→   733→    six_months_ago = timezone.now() - timedelta(days=180)
+   734→   734→    data = list(FIR.objects.filter(
+   735→   735→        created_at__gte=six_months_ago
+   736→   736→    ).annotate(
+   737→   737→        month=TruncMonth('created_at')
+   738→   738→    ).values('month').annotate(count=Count('id')).order_by('month'))
+   739→   739→    for item in data:
+   740→   740→        item['month'] = item['month'].strftime('%Y-%m') if item['month'] else ''
+   741→   741→    return JsonResponse(data, safe=False)
+   742→   742→
+   743→   743→
+   744→   744→@login_required
+   745→   745→def api_crime_categories(request):
+   746→   746→    data = list(FIR.objects.values('crime_category').annotate(count=Count('id')).order_by('-count')[:10])
+   747→   747→    return JsonResponse(data, safe=False)
+   748→   748→
