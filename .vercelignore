@@ -1,0 +1,7 @@
+tests/
+tool-results/
+db/*.db
+scripts/generate_proposal.py
+examples/
+*.log
+Caddyfile
