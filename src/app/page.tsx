@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { useSession, signOut } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -98,6 +99,21 @@ interface Equipment {
   lastChecked?: string; createdAt: string; updatedAt: string
 }
 
+// ========== AUTH HELPERS ==========
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: 'System Administrator', STATION_COMMANDER: 'Station Commander',
+  INVESTIGATOR: 'Investigator', CLERK: 'Clerk',
+}
+const ROLE_COLORS: Record<string, string> = {
+  ADMIN: 'bg-red-100 text-red-800', STATION_COMMANDER: 'bg-purple-100 text-purple-800',
+  INVESTIGATOR: 'bg-blue-100 text-blue-800', CLERK: 'bg-slate-100 text-slate-700',
+}
+// Module access by minimum role level
+const ROLE_LEVEL: Record<string, number> = { CLERK: 1, INVESTIGATOR: 2, STATION_COMMANDER: 3, ADMIN: 4 }
+const MODULE_ACCESS: Record<string, number> = {
+  dashboard: 1, cases: 1, personnel: 2, duty: 2, leave: 1, vehicles: 1, equipment: 2, reports: 2,
+}
+
 // ========== HELPERS ==========
 const fmt = (d?: string) => {
   if (!d) return '—'
@@ -162,19 +178,53 @@ function SkeletonRow() {
 
 // ========== MAIN COMPONENT ==========
 export default function Home() {
+  const { data: session, status } = useSession()
   const [activeModule, setActiveModule] = useState<Module>('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  const navItems: { id: Module; label: string; icon: React.ElementType }[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'cases', label: 'Case Management', icon: FileText },
-    { id: 'personnel', label: 'Personnel', icon: Users },
-    { id: 'duty', label: 'Duty & Attendance', icon: CalendarDays },
-    { id: 'leave', label: 'Leave Requests', icon: ClipboardList },
-    { id: 'vehicles', label: 'Vehicle Fleet', icon: Car },
-    { id: 'equipment', label: 'Equipment', icon: Wrench },
-    { id: 'reports', label: 'Reports', icon: BarChart3 },
+  const userRole = (session?.user as any)?.role || 'CLERK'
+  const userName = session?.user?.name || 'Unknown'
+  const userUsername = (session?.user as any)?.username || ''
+  const userLevel = ROLE_LEVEL[userRole] || 1
+
+  const allNavItems: { id: Module; label: string; icon: React.ElementType; minLevel: number }[] = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, minLevel: 1 },
+    { id: 'cases', label: 'Case Management', icon: FileText, minLevel: 1 },
+    { id: 'personnel', label: 'Personnel', icon: Users, minLevel: 2 },
+    { id: 'duty', label: 'Duty & Attendance', icon: CalendarDays, minLevel: 2 },
+    { id: 'leave', label: 'Leave Requests', icon: ClipboardList, minLevel: 1 },
+    { id: 'vehicles', label: 'Vehicle Fleet', icon: Car, minLevel: 1 },
+    { id: 'equipment', label: 'Equipment', icon: Wrench, minLevel: 2 },
+    { id: 'reports', label: 'Reports', icon: BarChart3, minLevel: 2 },
   ]
+  const navItems = allNavItems.filter(n => n.minLevel <= userLevel)
+
+  // If session loading, show minimal loading state
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center space-y-3">
+          <div className="h-10 w-10 rounded-lg bg-violet-600 flex items-center justify-center mx-auto">
+            <Shield className="h-6 w-6 text-white animate-pulse" />
+          </div>
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // If not authenticated, redirect to login
+  if (!session) {
+    if (typeof window !== 'undefined') window.location.href = '/login'
+    return null
+  }
+
+  // Ensure active module is accessible
+  if (MODULE_ACCESS[activeModule] > userLevel) {
+    setActiveModule('dashboard')
+  }
+
+  const initials = userName.split(' ').filter(Boolean).map(w => w[0]).join('').substring(0, 2).toUpperCase()
 
   const renderModule = () => {
     switch (activeModule) {
@@ -232,12 +282,19 @@ export default function Home() {
           <div className="p-4 border-t border-violet-600">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-full bg-violet-500 flex items-center justify-center text-sm font-bold">
-                AD
+                {initials}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">Admin User</p>
-                <p className="text-xs text-violet-200">Station Commander</p>
+                <p className="text-sm font-medium truncate">{userName}</p>
+                <p className="text-xs text-violet-200">{ROLE_LABELS[userRole] || userRole}</p>
               </div>
+              <button
+                onClick={() => signOut({ callbackUrl: '/login' })}
+                className="p-1.5 hover:bg-violet-500 rounded-lg transition-colors"
+                title="Sign out"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+              </button>
             </div>
           </div>
         </div>
@@ -258,8 +315,13 @@ export default function Home() {
               </> : null
             })()}
           </div>
-          <div className="ml-auto text-sm text-muted-foreground">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          <div className="ml-auto flex items-center gap-3">
+            <span className={`hidden sm:inline-flex px-2 py-0.5 rounded text-xs font-medium ${ROLE_COLORS[userRole] || ''}`}>
+              {ROLE_LABELS[userRole] || userRole}
+            </span>
+            <span className="text-sm text-muted-foreground hidden md:block">
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </span>
           </div>
         </header>
         <main className="flex-1 p-4 md:p-6 overflow-auto">
@@ -383,6 +445,11 @@ function DashboardModule({ onNavigate }: { onNavigate: (m: Module) => void }) {
 
 // ========== CASES MODULE ==========
 function CasesModule() {
+  const { data: session } = useSession()
+  const userRole = (session?.user as any)?.role || 'CLERK'
+  const userName = session?.user?.name || ''
+  const canEdit = userRole !== 'CLERK' // Clerks can register but not edit cases
+  const canDelete = userRole === 'ADMIN'
   const [firs, setFirs] = useState<FIR[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -437,12 +504,12 @@ function CasesModule() {
   }
 
   const handleAddNote = async () => {
-    if (!viewFIR || !noteOfficer || !noteText) return
-    const res = await fetch(`/api/firs/${viewFIR.id}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ officerName: noteOfficer, note: noteText, actionTaken: noteAction || undefined }) })
+    if (!viewFIR || !noteText) return
+    const res = await fetch(`/api/firs/${viewFIR.id}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: noteText, actionTaken: noteAction || undefined }) })
     if (res.ok) {
       const d = await res.json()
       setViewFIR({ ...viewFIR, investigationNotes: [d.data, ...viewFIR.investigationNotes] })
-      setNoteText(''); setNoteOfficer(''); setNoteAction(''); setShowNoteDialog(false)
+      setNoteText(''); setNoteAction(''); setShowNoteDialog(false)
     }
   }
 
@@ -517,9 +584,9 @@ function CasesModule() {
                 {viewFIR.accusedNames && <div className="sm:col-span-2"><p className="text-xs text-muted-foreground mb-1">Accused</p><p className="text-sm bg-red-50 p-3 rounded-lg text-red-800 font-medium">{viewFIR.accusedNames}</p></div>}
               </div>
               <div className="flex gap-2 mt-2">
-                <Button variant="outline" size="sm" onClick={() => { setEditFIR(viewFIR); setViewFIR(null) }}><Edit className="h-4 w-4 mr-1" />Edit</Button>
-                <Button variant="outline" size="sm" className="text-red-600" onClick={() => handleDelete(viewFIR.id)}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>
-                <Button size="sm" className="bg-violet-600 hover:bg-violet-700 ml-auto" onClick={() => setShowNoteDialog(true)}><Plus className="h-4 w-4 mr-1" />Add Note</Button>
+                {canEdit && <Button variant="outline" size="sm" onClick={() => { setEditFIR(viewFIR); setViewFIR(null) }}><Edit className="h-4 w-4 mr-1" />Edit</Button>}
+                {canDelete && <Button variant="outline" size="sm" className="text-red-600" onClick={() => handleDelete(viewFIR.id)}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>}
+                {canEdit && <Button size="sm" className="bg-violet-600 hover:bg-violet-700 ml-auto" onClick={() => setShowNoteDialog(true)}><Plus className="h-4 w-4 mr-1" />Add Note</Button>}
               </div>
               {/* Investigation Notes */}
               <div>
@@ -548,9 +615,9 @@ function CasesModule() {
 
       {/* Add Note Dialog */}
       <Dialog open={showNoteDialog} onOpenChange={setShowNoteDialog}>
-        <DialogContent><DialogHeader><DialogTitle>Add Investigation Note</DialogTitle><DialogDescription>Record your investigation findings and actions.</DialogDescription></DialogHeader>
+        <DialogContent><DialogHeader><DialogTitle>Add Investigation Note</DialogTitle><DialogDescription>Record your investigation findings and actions. Notes are immutable once added.</DialogDescription></DialogHeader>
         <div className="grid gap-4 py-2">
-          <div><Label>Officer Name *</Label><Input value={noteOfficer} onChange={e => setNoteOfficer(e.target.value)} placeholder="Your name" /></div>
+          <div className="text-sm text-muted-foreground">Recording as: <span className="font-medium text-foreground">{userName}</span></div>
           <div><Label>Note *</Label><Textarea value={noteText} onChange={e => setNoteText(e.target.value)} rows={3} placeholder="Investigation findings..." /></div>
           <div><Label>Action Taken</Label><Textarea value={noteAction} onChange={e => setNoteAction(e.target.value)} rows={2} placeholder="Actions taken based on findings..." /></div>
         </div>

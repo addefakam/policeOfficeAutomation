@@ -1,0 +1,1450 @@
+     1→'use client'
+     2→
+     3→import React, { useState, useEffect } from 'react'
+     4→import { useSession, signOut } from 'next-auth/react'
+     5→import { Button } from '@/components/ui/button'
+     6→import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+     7→import { Input } from '@/components/ui/input'
+     8→import { Label } from '@/components/ui/label'
+     9→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+    10→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+    11→import { Badge } from '@/components/ui/badge'
+    12→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    13→import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
+    14→import { Textarea } from '@/components/ui/textarea'
+    15→import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+    16→import {
+    17→  Shield, FileText, Users, BarChart3, Car, Wrench, Search, Plus, Eye, Edit, Trash2,
+    18→  CheckCircle, XCircle, Clock, AlertTriangle, ChevronLeft, Activity, TrendingUp,
+    19→  LayoutDashboard, Menu, X, UserCheck, CalendarDays, Fuel, ClipboardList,
+    20→  ChevronRight, MapPin, Phone, Mail, BadgeCheck, CarFront, ShieldAlert, CircleDot
+    21→} from 'lucide-react'
+    22→
+    23→// ========== TYPES ==========
+    24→type Module = 'dashboard' | 'cases' | 'personnel' | 'duty' | 'leave' | 'vehicles' | 'equipment' | 'reports'
+    25→
+    26→interface DashboardData {
+    27→  totalFIRs: number; openFIRs: number; underInvestigationFIRs: number; closedFIRs: number
+    28→  totalOfficers: number; activeOfficers: number; onLeaveOfficers: number
+    29→  totalVehicles: number; availableVehicles: number; assignedVehicles: number; maintenanceVehicles: number
+    30→  totalEquipmentItems: number; equipmentNeedsAttention: number
+    31→  recentFIRs: FIR[]
+    32→  crimeByCategory: { category: string; count: number }[]
+    33→  firByPriority: { priority: string; count: number }[]
+    34→}
+    35→
+    36→interface FIR {
+    37→  id: string; firNumber: string; complainantName: string; complainantPhone?: string
+    38→  complainantAddress?: string; incidentDate: string; incidentLocation: string
+    39→  crimeCategory: string; description: string; accusedNames?: string
+    40→  status: string; assignedTo?: string; priority: string; station: string
+    41→  createdAt: string; updatedAt: string; investigationNotes: InvestigationNote[]
+    42→}
+    43→
+    44→interface InvestigationNote {
+    45→  id: string; firId: string; officerName: string; note: string
+    46→  actionTaken?: string; createdAt: string
+    47→}
+    48→
+    49→interface Officer {
+    50→  id: string; badgeNumber: string; name: string; rank: string; department: string
+    51→  phone?: string; email?: string; status: string; createdAt: string; updatedAt: string
+    52→  attendances?: Attendance[]; leaveRequests?: LeaveRequest[]; dutyAssignments?: DutyAssignment[]
+    53→}
+    54→
+    55→interface Attendance {
+    56→  id: string; officerId: string; date: string; checkIn?: string; checkOut?: string
+    57→  hoursWorked?: number; status: string; notes?: string; createdAt: string; officer?: Officer
+    58→}
+    59→
+    60→interface DutyAssignment {
+    61→  id: string; officerId: string; shiftType: string; postArea?: string
+    62→  assignedDate: string; startTime?: string; endTime?: string; createdBy?: string
+    63→  createdAt: string; officer?: Officer
+    64→}
+    65→
+    66→interface LeaveRequest {
+    67→  id: string; officerId: string; leaveType: string; startDate: string; endDate: string
+    68→  days?: number; reason?: string; status: string; approvedBy?: string
+    69→  createdAt: string; updatedAt: string; officer?: Officer
+    70→}
+    71→
+    72→interface Vehicle {
+    73→  id: string; registrationNumber: string; make: string; model: string; year?: number
+    74→  vehicleType: string; status: string; insuranceExpiry?: string
+    75→  lastServiceDate?: string; nextServiceDate?: string; currentMileage: number
+    76→  notes?: string; createdAt: string; updatedAt: string
+    77→  assignments?: VehicleAssignment[]; fuelLogs?: FuelLog[]; maintenanceLogs?: MaintenanceLog[]
+    78→}
+    79→
+    80→interface VehicleAssignment {
+    81→  id: string; vehicleId: string; officerName?: string; officerBadge?: string
+    82→  purpose?: string; assignedDate: string; returnDate?: string; status: string; createdAt: string
+    83→}
+    84→
+    85→interface FuelLog {
+    86→  id: string; vehicleId: string; date: string; fuelType: string; liters: number
+    87→  cost?: number; mileage?: number; filledBy?: string; createdAt: string
+    88→}
+    89→
+    90→interface MaintenanceLog {
+    91→  id: string; vehicleId: string; maintenanceType: string; description: string
+    92→  cost?: number; performedBy?: string; performedDate: string
+    93→  nextDueDate?: string; status: string; createdAt: string
+    94→}
+    95→
+    96→interface Equipment {
+    97→  id: string; itemCode: string; name: string; category: string; quantity: number
+    98→  availableQty: number; condition: string; storageLocation?: string
+    99→  lastChecked?: string; createdAt: string; updatedAt: string
+   100→}
+   101→
+   102→// ========== AUTH HELPERS ==========
+   103→const ROLE_LABELS: Record<string, string> = {
+   104→  ADMIN: 'System Administrator', STATION_COMMANDER: 'Station Commander',
+   105→  INVESTIGATOR: 'Investigator', CLERK: 'Clerk',
+   106→}
+   107→const ROLE_COLORS: Record<string, string> = {
+   108→  ADMIN: 'bg-red-100 text-red-800', STATION_COMMANDER: 'bg-purple-100 text-purple-800',
+   109→  INVESTIGATOR: 'bg-blue-100 text-blue-800', CLERK: 'bg-slate-100 text-slate-700',
+   110→}
+   111→// Module access by minimum role level
+   112→const ROLE_LEVEL: Record<string, number> = { CLERK: 1, INVESTIGATOR: 2, STATION_COMMANDER: 3, ADMIN: 4 }
+   113→const MODULE_ACCESS: Record<string, number> = {
+   114→  dashboard: 1, cases: 1, personnel: 2, duty: 2, leave: 1, vehicles: 1, equipment: 2, reports: 2,
+   115→}
+   116→
+   117→// ========== HELPERS ==========
+   118→const fmt = (d?: string) => {
+   119→  if (!d) return '—'
+   120→  try { return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) } catch { return d }
+   121→}
+   122→const fmtDT = (d?: string) => {
+   123→  if (!d) return '—'
+   124→  try { return new Date(d).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return d }
+   125→}
+   126→const fmtTime = (d?: string) => {
+   127→  if (!d) return '—'
+   128→  try { return new Date(d).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) } catch { return d }
+   129→}
+   130→
+   131→function StatusBadge({ status }: { status: string }) {
+   132→  const map: Record<string, string> = {
+   133→    'Open': 'bg-amber-100 text-amber-800', 'Under Investigation': 'bg-violet-100 text-violet-800',
+   134→    'Closed': 'bg-emerald-100 text-emerald-800', 'Transferred': 'bg-slate-100 text-slate-800',
+   135→    'Active': 'bg-emerald-100 text-emerald-800', 'On Leave': 'bg-amber-100 text-amber-800', 'Suspended': 'bg-red-100 text-red-800',
+   136→    'Available': 'bg-emerald-100 text-emerald-800', 'Assigned': 'bg-violet-100 text-violet-800',
+   137→    'Maintenance': 'bg-amber-100 text-amber-800', 'Out of Service': 'bg-red-100 text-red-800',
+   138→    'Pending': 'bg-amber-100 text-amber-800', 'Approved': 'bg-emerald-100 text-emerald-800', 'Rejected': 'bg-red-100 text-red-800',
+   139→    'Present': 'bg-emerald-100 text-emerald-800', 'Absent': 'bg-red-100 text-red-800', 'Half Day': 'bg-amber-100 text-amber-800',
+   140→    'Returned': 'bg-slate-100 text-slate-600',
+   141→    'Good': 'bg-emerald-100 text-emerald-800', 'Fair': 'bg-amber-100 text-amber-800',
+   142→    'Poor': 'bg-red-100 text-red-800', 'Needs Replacement': 'bg-red-200 text-red-900',
+   143→    'Scheduled': 'bg-violet-100 text-violet-800', 'In Progress': 'bg-amber-100 text-amber-800', 'Completed': 'bg-emerald-100 text-emerald-800',
+   144→  }
+   145→  return <Badge variant="outline" className={`${map[status] || 'bg-slate-100 text-slate-700'} border-0 font-medium`}>{status}</Badge>
+   146→}
+   147→
+   148→function PriorityBadge({ priority }: { priority: string }) {
+   149→  const map: Record<string, string> = {
+   150→    'Critical': 'bg-red-100 text-red-800', 'High': 'bg-orange-100 text-orange-800',
+   151→    'Medium': 'bg-amber-100 text-amber-800', 'Low': 'bg-emerald-100 text-emerald-800',
+   152→  }
+   153→  return <Badge variant="outline" className={`${map[priority] || ''} border-0 font-medium`}>{priority}</Badge>
+   154→}
+   155→
+   156→function StatCard({ icon: Icon, label, value, sub, color }: { icon: React.ElementType; label: string; value: string | number; sub?: string; color: string }) {
+   157→  return (
+   158→    <Card className="relative overflow-hidden">
+   159→      <CardContent className="p-4">
+   160→        <div className="flex items-center justify-between">
+   161→          <div className="space-y-1">
+   162→            <p className="text-sm text-muted-foreground font-medium">{label}</p>
+   163→            <p className="text-2xl font-bold">{value}</p>
+   164→            {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+   165→          </div>
+   166→          <div className={`h-12 w-12 rounded-xl flex items-center justify-center ${color}`}>
+   167→            <Icon className="h-6 w-6 text-white" />
+   168→          </div>
+   169→        </div>
+   170→      </CardContent>
+   171→    </Card>
+   172→  )
+   173→}
+   174→
+   175→function SkeletonRow() {
+   176→  return <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No data available</td></tr>
+   177→}
+   178→
+   179→// ========== MAIN COMPONENT ==========
+   180→export default function Home() {
+   181→  const { data: session, status } = useSession()
+   182→  const [activeModule, setActiveModule] = useState<Module>('dashboard')
+   183→  const [sidebarOpen, setSidebarOpen] = useState(false)
+   184→
+   185→  const userRole = (session?.user as any)?.role || 'CLERK'
+   186→  const userName = session?.user?.name || 'Unknown'
+   187→  const userUsername = (session?.user as any)?.username || ''
+   188→  const userLevel = ROLE_LEVEL[userRole] || 1
+   189→
+   190→  const allNavItems: { id: Module; label: string; icon: React.ElementType; minLevel: number }[] = [
+   191→    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, minLevel: 1 },
+   192→    { id: 'cases', label: 'Case Management', icon: FileText, minLevel: 1 },
+   193→    { id: 'personnel', label: 'Personnel', icon: Users, minLevel: 2 },
+   194→    { id: 'duty', label: 'Duty & Attendance', icon: CalendarDays, minLevel: 2 },
+   195→    { id: 'leave', label: 'Leave Requests', icon: ClipboardList, minLevel: 1 },
+   196→    { id: 'vehicles', label: 'Vehicle Fleet', icon: Car, minLevel: 1 },
+   197→    { id: 'equipment', label: 'Equipment', icon: Wrench, minLevel: 2 },
+   198→    { id: 'reports', label: 'Reports', icon: BarChart3, minLevel: 2 },
+   199→  ]
+   200→  const navItems = allNavItems.filter(n => n.minLevel <= userLevel)
+   201→
+   202→  // If session loading, show minimal loading state
+   203→  if (status === 'loading') {
+   204→    return (
+   205→      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+   206→        <div className="text-center space-y-3">
+   207→          <div className="h-10 w-10 rounded-lg bg-violet-600 flex items-center justify-center mx-auto">
+   208→            <Shield className="h-6 w-6 text-white animate-pulse" />
+   209→          </div>
+   210→          <p className="text-sm text-muted-foreground">Loading...</p>
+   211→        </div>
+   212→      </div>
+   213→    )
+   214→  }
+   215→
+   216→  // If not authenticated, redirect to login
+   217→  if (!session) {
+   218→    if (typeof window !== 'undefined') window.location.href = '/login'
+   219→    return null
+   220→  }
+   221→
+   222→  // Ensure active module is accessible
+   223→  if (MODULE_ACCESS[activeModule] > userLevel) {
+   224→    setActiveModule('dashboard')
+   225→  }
+   226→
+   227→  const initials = userName.split(' ').filter(Boolean).map(w => w[0]).join('').substring(0, 2).toUpperCase()
+   228→
+   229→  const renderModule = () => {
+   230→    switch (activeModule) {
+   231→      case 'dashboard': return <DashboardModule onNavigate={setActiveModule} />
+   232→      case 'cases': return <CasesModule />
+   233→      case 'personnel': return <PersonnelModule />
+   234→      case 'duty': return <DutyModule />
+   235→      case 'leave': return <LeaveModule />
+   236→      case 'vehicles': return <VehiclesModule />
+   237→      case 'equipment': return <EquipmentModule />
+   238→      case 'reports': return <ReportsModule />
+   239→      default: return <DashboardModule onNavigate={setActiveModule} />
+   240→    }
+   241→  }
+   242→
+   243→  return (
+   244→    <div className="min-h-screen flex bg-slate-50">
+   245→      {/* Mobile overlay */}
+   246→      {sidebarOpen && (
+   247→        <div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
+   248→      )}
+   249→      {/* Sidebar */}
+   250→      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-violet-700 text-white transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:z-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+   251→        <div className="flex flex-col h-full">
+   252→          <div className="flex items-center justify-between p-4 border-b border-violet-600">
+   253→            <div className="flex items-center gap-3">
+   254→              <div className="h-10 w-10 rounded-lg bg-white/20 flex items-center justify-center">
+   255→                <Shield className="h-6 w-6 text-white" />
+   256→              </div>
+   257→              <div>
+   258→                <h1 className="font-bold text-base leading-tight">Police Dept.</h1>
+   259→                <p className="text-violet-200 text-xs">Automation System</p>
+   260→              </div>
+   261→            </div>
+   262→            <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-1 hover:bg-violet-600 rounded">
+   263→              <X className="h-5 w-5" />
+   264→            </button>
+   265→          </div>
+   266→          <nav className="flex-1 py-4 overflow-y-auto">
+   267→            {navItems.map((item) => (
+   268→              <button
+   269→                key={item.id}
+   270→                onClick={() => { setActiveModule(item.id); setSidebarOpen(false) }}
+   271→                className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+   272→                  activeModule === item.id
+   273→                    ? 'bg-violet-600 text-white border-r-3 border-white'
+   274→                    : 'text-violet-100 hover:bg-violet-600/50 hover:text-white'
+   275→                }`}
+   276→              >
+   277→                <item.icon className="h-5 w-5 flex-shrink-0" />
+   278→                <span>{item.label}</span>
+   279→              </button>
+   280→            ))}
+   281→          </nav>
+   282→          <div className="p-4 border-t border-violet-600">
+   283→            <div className="flex items-center gap-3">
+   284→              <div className="h-9 w-9 rounded-full bg-violet-500 flex items-center justify-center text-sm font-bold">
+   285→                {initials}
+   286→              </div>
+   287→              <div className="flex-1 min-w-0">
+   288→                <p className="text-sm font-medium truncate">{userName}</p>
+   289→                <p className="text-xs text-violet-200">{ROLE_LABELS[userRole] || userRole}</p>
+   290→              </div>
+   291→              <button
+   292→                onClick={() => signOut({ callbackUrl: '/login' })}
+   293→                className="p-1.5 hover:bg-violet-500 rounded-lg transition-colors"
+   294→                title="Sign out"
+   295→              >
+   296→                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+   297→              </button>
+   298→            </div>
+   299→          </div>
+   300→        </div>
+   301→      </aside>
+   302→
+   303→      {/* Main Content */}
+   304→      <div className="flex-1 flex flex-col min-w-0">
+   305→        <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 py-3 flex items-center gap-3">
+   306→          <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 hover:bg-slate-100 rounded-lg">
+   307→            <Menu className="h-5 w-5" />
+   308→          </button>
+   309→          <div className="flex items-center gap-2">
+   310→            {(() => {
+   311→              const current = navItems.find(n => n.id === activeModule)
+   312→              return current ? <>
+   313→                <current.icon className="h-5 w-5 text-violet-600" />
+   314→                <h2 className="font-semibold text-lg">{current.label}</h2>
+   315→              </> : null
+   316→            })()}
+   317→          </div>
+   318→          <div className="ml-auto flex items-center gap-3">
+   319→            <span className={`hidden sm:inline-flex px-2 py-0.5 rounded text-xs font-medium ${ROLE_COLORS[userRole] || ''}`}>
+   320→              {ROLE_LABELS[userRole] || userRole}
+   321→            </span>
+   322→            <span className="text-sm text-muted-foreground hidden md:block">
+   323→              {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+   324→            </span>
+   325→          </div>
+   326→        </header>
+   327→        <main className="flex-1 p-4 md:p-6 overflow-auto">
+   328→          {renderModule()}
+   329→        </main>
+   330→      </div>
+   331→    </div>
+   332→  )
+   333→}
+   334→
+   335→// ========== DASHBOARD MODULE ==========
+   336→function DashboardModule({ onNavigate }: { onNavigate: (m: Module) => void }) {
+   337→  const [data, setData] = useState<DashboardData | null>(null)
+   338→  const [loading, setLoading] = useState(true)
+   339→
+   340→  useEffect(() => {
+   341→    fetch('/api/dashboard').then(r => r.json()).then(d => { setData(d); setLoading(false) }).catch(() => setLoading(false))
+   342→  }, [])
+   343→
+   344→  if (loading) return <div className="space-y-4"><div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">{Array.from({length:8}).map((_,i)=><Card key={i}><CardContent className="p-4 h-24 bg-slate-100 animate-pulse rounded-lg"/></Card>)}</div></div>
+   345→  if (!data) return <Alert variant="destructive"><AlertTriangle className="h-4 w-4"/><AlertTitle>Error</AlertTitle><AlertDescription>Failed to load dashboard data.</AlertDescription></Alert>
+   346→
+   347→  const maxCrimeCount = Math.max(...(data.crimeByCategory.map(c => c.count) || [1]), 1)
+   348→
+   349→  return (
+   350→    <div className="space-y-6">
+   351→      {/* Stat Cards */}
+   352→      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+   353→        <StatCard icon={FileText} label="Total FIRs" value={data.totalFIRs} sub={`${data.openFIRs} open, ${data.closedFIRs} closed`} color="bg-violet-600" />
+   354→        <StatCard icon={Users} label="Officers" value={data.totalOfficers} sub={`${data.activeOfficers} active, ${data.onLeaveOfficers} on leave`} color="bg-emerald-600" />
+   355→        <StatCard icon={Car} label="Vehicles" value={data.totalVehicles} sub={`${data.availableVehicles} available, ${data.assignedVehicles} assigned`} color="bg-amber-500" />
+   356→        <StatCard icon={Wrench} label="Equipment" value={data.totalEquipmentItems} sub={`${data.equipmentNeedsAttention} need attention`} color="bg-red-600" />
+   357→      </div>
+   358→
+   359→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+   360→        {/* Recent FIRs */}
+   361→        <Card className="lg:col-span-2">
+   362→          <CardHeader className="pb-3">
+   363→            <div className="flex items-center justify-between">
+   364→              <div>
+   365→                <CardTitle className="text-base">Recent FIRs</CardTitle>
+   366→                <CardDescription>Latest filed incident reports</CardDescription>
+   367→              </div>
+   368→              <Button variant="outline" size="sm" onClick={() => onNavigate('cases')} className="text-violet-600 border-violet-200 hover:bg-violet-50">
+   369→                View All <ChevronRight className="ml-1 h-4 w-4" />
+   370→              </Button>
+   371→            </div>
+   372→          </CardHeader>
+   373→          <CardContent className="p-0">
+   374→            <div className="max-h-96 overflow-y-auto">
+   375→              <Table>
+   376→                <TableHeader><TableRow><TableHead>FIR #</TableHead><TableHead>Complainant</TableHead><TableHead>Category</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+   377→                <TableBody>
+   378→                  {data.recentFIRs.length === 0 ? <SkeletonRow /> : data.recentFIRs.map(fir => (
+   379→                    <TableRow key={fir.id} className="cursor-pointer hover:bg-violet-50/50">
+   380→                      <TableCell className="font-mono text-sm font-medium">{fir.firNumber}</TableCell>
+   381→                      <TableCell className="max-w-[150px] truncate">{fir.complainantName}</TableCell>
+   382→                      <TableCell><Badge variant="outline" className="border-slate-200">{fir.crimeCategory}</Badge></TableCell>
+   383→                      <TableCell><PriorityBadge priority={fir.priority} /></TableCell>
+   384→                      <TableCell><StatusBadge status={fir.status} /></TableCell>
+   385→                    </TableRow>
+   386→                  ))}
+   387→                </TableBody>
+   388→              </Table>
+   389→            </div>
+   390→          </CardContent>
+   391→        </Card>
+   392→
+   393→        {/* Crime Analytics */}
+   394→        <div className="space-y-6">
+   395→          <Card>
+   396→            <CardHeader className="pb-3"><CardTitle className="text-base">Crime by Category</CardTitle></CardHeader>
+   397→            <CardContent className="space-y-3">
+   398→              {(data.crimeByCategory || []).length === 0 ? <p className="text-sm text-muted-foreground">No data</p> : data.crimeByCategory.map(c => (
+   399→                <div key={c.category} className="space-y-1">
+   400→                  <div className="flex justify-between text-sm"><span>{c.category}</span><span className="font-semibold">{c.count}</span></div>
+   401→                  <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+   402→                    <div className="h-full bg-violet-600 rounded-full transition-all" style={{ width: `${(c.count / maxCrimeCount) * 100}%` }} />
+   403→                  </div>
+   404→                </div>
+   405→              ))}
+   406→            </CardContent>
+   407→          </Card>
+   408→          <Card>
+   409→            <CardHeader className="pb-3"><CardTitle className="text-base">FIR by Priority</CardTitle></CardHeader>
+   410→            <CardContent className="space-y-3">
+   411→              {(data.firByPriority || []).length === 0 ? <p className="text-sm text-muted-foreground">No data</p> : data.firByPriority.map(p => (
+   412→                <div key={p.priority} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg">
+   413→                  <PriorityBadge priority={p.priority} />
+   414→                  <span className="font-bold text-lg">{p.count}</span>
+   415→                </div>
+   416→              ))}
+   417→            </CardContent>
+   418→          </Card>
+   419→        </div>
+   420→      </div>
+   421→
+   422→      {/* Quick Actions */}
+   423→      <Card>
+   424→        <CardHeader className="pb-3"><CardTitle className="text-base">Quick Actions</CardTitle></CardHeader>
+   425→        <CardContent>
+   426→          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+   427→            <Button variant="outline" className="h-auto py-4 flex-col gap-2 hover:bg-violet-50 hover:border-violet-200" onClick={() => onNavigate('cases')}>
+   428→              <Plus className="h-5 w-5 text-violet-600" /><span className="text-sm">New FIR</span>
+   429→            </Button>
+   430→            <Button variant="outline" className="h-auto py-4 flex-col gap-2 hover:bg-violet-50 hover:border-violet-200" onClick={() => onNavigate('personnel')}>
+   431→              <UserCheck className="h-5 w-5 text-emerald-600" /><span className="text-sm">Add Officer</span>
+   432→            </Button>
+   433→            <Button variant="outline" className="h-auto py-4 flex-col gap-2 hover:bg-violet-50 hover:border-violet-200" onClick={() => onNavigate('vehicles')}>
+   434→              <CarFront className="h-5 w-5 text-amber-600" /><span className="text-sm">Assign Vehicle</span>
+   435→            </Button>
+   436→            <Button variant="outline" className="h-auto py-4 flex-col gap-2 hover:bg-violet-50 hover:border-violet-200" onClick={() => onNavigate('leave')}>
+   437→              <CheckCircle className="h-5 w-5 text-violet-600" /><span className="text-sm">Approve Leave</span>
+   438→            </Button>
+   439→          </div>
+   440→        </CardContent>
+   441→      </Card>
+   442→    </div>
+   443→  )
+   444→}
+   445→
+   446→// ========== CASES MODULE ==========
+   447→function CasesModule() {
+   448→  const { data: session } = useSession()
+   449→  const userRole = (session?.user as any)?.role || 'CLERK'
+   450→  const userName = session?.user?.name || ''
+   451→  const canEdit = userRole !== 'CLERK' // Clerks can register but not edit cases
+   452→  const canDelete = userRole === 'ADMIN'
+   453→  const [firs, setFirs] = useState<FIR[]>([])
+   454→  const [loading, setLoading] = useState(true)
+   455→  const [search, setSearch] = useState('')
+   456→  const [filterStatus, setFilterStatus] = useState('')
+   457→  const [filterCategory, setFilterCategory] = useState('')
+   458→  const [filterPriority, setFilterPriority] = useState('')
+   459→  const [viewFIR, setViewFIR] = useState<FIR | null>(null)
+   460→  const [editFIR, setEditFIR] = useState<FIR | null>(null)
+   461→  const [showCreate, setShowCreate] = useState(false)
+   462→  const [noteText, setNoteText] = useState('')
+   463→  const [noteOfficer, setNoteOfficer] = useState('')
+   464→  const [noteAction, setNoteAction] = useState('')
+   465→  const [showNoteDialog, setShowNoteDialog] = useState(false)
+   466→
+   467→  // Create form
+   468→  const [form, setForm] = useState({ firNumber: '', complainantName: '', complainantPhone: '', complainantAddress: '', incidentDate: '', incidentLocation: '', crimeCategory: '', description: '', accusedNames: '', status: 'Open', assignedTo: '', priority: 'Medium', station: 'Main Station' })
+   469→
+   470→  const loadFIRs = () => {
+   471→    setLoading(true)
+   472→    const params = new URLSearchParams()
+   473→    if (search) params.set('search', search)
+   474→    if (filterStatus) params.set('status', filterStatus)
+   475→    if (filterCategory) params.set('category', filterCategory)
+   476→    if (filterPriority) params.set('priority', filterPriority)
+   477→    fetch(`/api/firs?${params}`).then(r => r.json()).then(d => { setFirs(Array.isArray(d) ? d : []); setLoading(false) }).catch(() => setLoading(false))
+   478→  }
+   479→
+   480→  useEffect(() => {
+   481→    const params = new URLSearchParams()
+   482→    if (search) params.set('search', search)
+   483→    if (filterStatus) params.set('status', filterStatus)
+   484→    if (filterCategory) params.set('category', filterCategory)
+   485→    if (filterPriority) params.set('priority', filterPriority)
+   486→    fetch(`/api/firs?${params}`).then(r => r.json()).then(d => { setFirs(Array.isArray(d) ? d : []); setLoading(false) }).catch(() => setLoading(false))
+   487→  }, [search, filterStatus, filterCategory, filterPriority])
+   488→
+   489→  const handleCreate = async () => {
+   490→    const res = await fetch('/api/firs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+   491→    if (res.ok) { setShowCreate(false); resetForm(); loadFIRs() }
+   492→  }
+   493→
+   494→  const handleUpdate = async () => {
+   495→    if (!editFIR) return
+   496→    const res = await fetch(`/api/firs/${editFIR.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editFIR) })
+   497→    if (res.ok) { setEditFIR(null); loadFIRs(); if (viewFIR?.id === editFIR.id) { const d = await res.json(); setViewFIR({ ...viewFIR, ...d.data }); } }
+   498→  }
+   499→
+   500→  const handleDelete = async (id: string) => {
+   501→    if (!confirm('Are you sure you want to delete this FIR?')) return
+   502→    await fetch(`/api/firs/${id}`, { method: 'DELETE' })
+   503→    setViewFIR(null); loadFIRs()
+   504→  }
+   505→
+   506→  const handleAddNote = async () => {
+   507→    if (!viewFIR || !noteText) return
+   508→    const res = await fetch(`/api/firs/${viewFIR.id}/notes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: noteText, actionTaken: noteAction || undefined }) })
+   509→    if (res.ok) {
+   510→      const d = await res.json()
+   511→      setViewFIR({ ...viewFIR, investigationNotes: [d.data, ...viewFIR.investigationNotes] })
+   512→      setNoteText(''); setNoteAction(''); setShowNoteDialog(false)
+   513→    }
+   514→  }
+   515→
+   516→  const resetForm = () => setForm({ firNumber: '', complainantName: '', complainantPhone: '', complainantAddress: '', incidentDate: '', incidentLocation: '', crimeCategory: '', description: '', accusedNames: '', status: 'Open', assignedTo: '', priority: 'Medium', station: 'Main Station' })
+   517→
+   518→  return (
+   519→    <div className="space-y-4">
+   520→      {/* Filters */}
+   521→      <Card>
+   522→        <CardContent className="p-4">
+   523→          <div className="flex flex-col sm:flex-row gap-3">
+   524→            <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Search FIRs..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>
+   525→            <Select value={filterStatus} onValueChange={v => setFilterStatus(v === 'all' ? '' : v)}><SelectTrigger className="w-full sm:w-40"><SelectValue placeholder="Status" /></SelectTrigger><SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="Open">Open</SelectItem><SelectItem value="Under Investigation">Under Investigation</SelectItem><SelectItem value="Closed">Closed</SelectItem><SelectItem value="Transferred">Transferred</SelectItem></SelectContent></Select>
+   526→            <Select value={filterCategory} onValueChange={v => setFilterCategory(v === 'all' ? '' : v)}><SelectTrigger className="w-full sm:w-40"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All Categories</SelectItem><SelectItem value="Theft">Theft</SelectItem><SelectItem value="Assault">Assault</SelectItem><SelectItem value="Robbery">Robbery</SelectItem><SelectItem value="Fraud">Fraud</SelectItem><SelectItem value="Vehicle Theft">Vehicle Theft</SelectItem><SelectItem value="Vandalism">Vandalism</SelectItem><SelectItem value="Domestic Violence">Domestic Violence</SelectItem></SelectContent></Select>
+   527→            <Select value={filterPriority} onValueChange={v => setFilterPriority(v === 'all' ? '' : v)}><SelectTrigger className="w-full sm:w-36"><SelectValue placeholder="Priority" /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="Critical">Critical</SelectItem><SelectItem value="High">High</SelectItem><SelectItem value="Medium">Medium</SelectItem><SelectItem value="Low">Low</SelectItem></SelectContent></Select>
+   528→            <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogTrigger asChild><Button className="bg-violet-600 hover:bg-violet-700"><Plus className="h-4 w-4 mr-1" /> New FIR</Button></DialogTrigger><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Register New FIR</DialogTitle><DialogDescription>Fill in the details to register a new First Information Report.</DialogDescription></DialogHeader><div className="grid gap-4 py-4"><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><Label>FIR Number *</Label><Input value={form.firNumber} onChange={e => setForm({...form, firNumber: e.target.value})} placeholder="FIR-2026-XXX" /></div><div><Label>Priority</Label><Select value={form.priority} onValueChange={v => setForm({...form, priority: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Low">Low</SelectItem><SelectItem value="Medium">Medium</SelectItem><SelectItem value="High">High</SelectItem><SelectItem value="Critical">Critical</SelectItem></SelectContent></Select></div></div><div><Label>Complainant Name *</Label><Input value={form.complainantName} onChange={e => setForm({...form, complainantName: e.target.value})} /></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><Label>Phone</Label><Input value={form.complainantPhone} onChange={e => setForm({...form, complainantPhone: e.target.value})} /></div><div><Label>Address</Label><Input value={form.complainantAddress} onChange={e => setForm({...form, complainantAddress: e.target.value})} /></div></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><Label>Incident Date *</Label><Input type="date" value={form.incidentDate} onChange={e => setForm({...form, incidentDate: e.target.value})} /></div><div><Label>Incident Location *</Label><Input value={form.incidentLocation} onChange={e => setForm({...form, incidentLocation: e.target.value})} /></div></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><Label>Crime Category *</Label><Select value={form.crimeCategory} onValueChange={v => setForm({...form, crimeCategory: v})}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent><SelectItem value="Theft">Theft</SelectItem><SelectItem value="Assault">Assault</SelectItem><SelectItem value="Robbery">Robbery</SelectItem><SelectItem value="Fraud">Fraud</SelectItem><SelectItem value="Vehicle Theft">Vehicle Theft</SelectItem><SelectItem value="Vandalism">Vandalism</SelectItem><SelectItem value="Domestic Violence">Domestic Violence</SelectItem></SelectContent></Select></div><div><Label>Station</Label><Input value={form.station} onChange={e => setForm({...form, station: e.target.value})} /></div></div><div><Label>Description *</Label><Textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} rows={3} /></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><Label>Accused Names</Label><Input value={form.accusedNames} onChange={e => setForm({...form, accusedNames: e.target.value})} /></div><div><Label>Assigned To</Label><Input value={form.assignedTo} onChange={e => setForm({...form, assignedTo: e.target.value})} /></div></div></div><DialogFooter><Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleCreate}>Register FIR</Button></DialogFooter></DialogContent></Dialog>
+   529→          </div>
+   530→        </CardContent>
+   531→      </Card>
+   532→
+   533→      {/* Table */}
+   534→      <Card>
+   535→        <CardContent className="p-0">
+   536→          <div className="max-h-[500px] overflow-y-auto">
+   537→            <Table>
+   538→              <TableHeader><TableRow><TableHead>FIR #</TableHead><TableHead>Complainant</TableHead><TableHead className="hidden md:table-cell">Location</TableHead><TableHead>Category</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead><TableHead className="hidden sm:table-cell">Date</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   539→              <TableBody>
+   540→                {loading ? <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">Loading...</td></tr> :
+   541→                firs.length === 0 ? <SkeletonRow /> :
+   542→                firs.map(fir => (
+   543→                  <TableRow key={fir.id}>
+   544→                    <TableCell className="font-mono text-sm font-medium text-violet-700">{fir.firNumber}</TableCell>
+   545→                    <TableCell className="max-w-[120px] truncate font-medium">{fir.complainantName}</TableCell>
+   546→                    <TableCell className="hidden md:table-cell max-w-[150px] truncate text-muted-foreground">{fir.incidentLocation}</TableCell>
+   547→                    <TableCell><Badge variant="outline" className="border-slate-200">{fir.crimeCategory}</Badge></TableCell>
+   548→                    <TableCell><PriorityBadge priority={fir.priority} /></TableCell>
+   549→                    <TableCell><StatusBadge status={fir.status} /></TableCell>
+   550→                    <TableCell className="hidden sm:table-cell text-muted-foreground text-sm">{fmt(fir.incidentDate)}</TableCell>
+   551→                    <TableCell className="text-right">
+   552→                      <div className="flex justify-end gap-1">
+   553→                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewFIR(fir)}><Eye className="h-4 w-4" /></Button>
+   554→                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditFIR(fir)}><Edit className="h-4 w-4" /></Button>
+   555→                        <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => handleDelete(fir.id)}><Trash2 className="h-4 w-4" /></Button>
+   556→                      </div>
+   557→                    </TableCell>
+   558→                  </TableRow>
+   559→                ))}
+   560→              </TableBody>
+   561→            </Table>
+   562→          </div>
+   563→        </CardContent>
+   564→      </Card>
+   565→
+   566→      {/* View FIR Dialog */}
+   567→      <Dialog open={!!viewFIR} onOpenChange={() => setViewFIR(null)}>
+   568→        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+   569→          {viewFIR && <>
+   570→            <DialogHeader>
+   571→              <div className="flex items-center gap-3"><DialogTitle className="font-mono">{viewFIR.firNumber}</DialogTitle><PriorityBadge priority={viewFIR.priority} /><StatusBadge status={viewFIR.status} /></div>
+   572→              <DialogDescription>Filed on {fmtDT(viewFIR.createdAt)} at {viewFIR.station}</DialogDescription>
+   573→            </DialogHeader>
+   574→            <div className="grid gap-4 py-2">
+   575→              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   576→                <div><p className="text-xs text-muted-foreground mb-1">Complainant</p><p className="font-medium">{viewFIR.complainantName}</p></div>
+   577→                <div><p className="text-xs text-muted-foreground mb-1">Phone</p><p className="font-medium">{viewFIR.complainantPhone || '—'}</p></div>
+   578→                <div><p className="text-xs text-muted-foreground mb-1">Address</p><p className="font-medium">{viewFIR.complainantAddress || '—'}</p></div>
+   579→                <div><p className="text-xs text-muted-foreground mb-1">Assigned To</p><p className="font-medium">{viewFIR.assignedTo || 'Unassigned'}</p></div>
+   580→                <div><p className="text-xs text-muted-foreground mb-1">Incident Date</p><p className="font-medium">{fmtDT(viewFIR.incidentDate)}</p></div>
+   581→                <div><p className="text-xs text-muted-foreground mb-1">Location</p><p className="font-medium">{viewFIR.incidentLocation}</p></div>
+   582→                <div className="sm:col-span-2"><p className="text-xs text-muted-foreground mb-1">Crime Category</p><Badge variant="outline" className="border-violet-200 text-violet-700">{viewFIR.crimeCategory}</Badge></div>
+   583→                <div className="sm:col-span-2"><p className="text-xs text-muted-foreground mb-1">Description</p><p className="text-sm bg-slate-50 p-3 rounded-lg">{viewFIR.description}</p></div>
+   584→                {viewFIR.accusedNames && <div className="sm:col-span-2"><p className="text-xs text-muted-foreground mb-1">Accused</p><p className="text-sm bg-red-50 p-3 rounded-lg text-red-800 font-medium">{viewFIR.accusedNames}</p></div>}
+   585→              </div>
+   586→              <div className="flex gap-2 mt-2">
+   587→                {canEdit && <Button variant="outline" size="sm" onClick={() => { setEditFIR(viewFIR); setViewFIR(null) }}><Edit className="h-4 w-4 mr-1" />Edit</Button>}
+   588→                {canDelete && <Button variant="outline" size="sm" className="text-red-600" onClick={() => handleDelete(viewFIR.id)}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>}
+   589→                {canEdit && <Button size="sm" className="bg-violet-600 hover:bg-violet-700 ml-auto" onClick={() => setShowNoteDialog(true)}><Plus className="h-4 w-4 mr-1" />Add Note</Button>}
+   590→              </div>
+   591→              {/* Investigation Notes */}
+   592→              <div>
+   593→                <h4 className="font-semibold text-sm mb-3 flex items-center gap-2"><Activity className="h-4 w-4 text-violet-600" />Investigation Notes ({viewFIR.investigationNotes?.length || 0})</h4>
+   594→                {(!viewFIR.investigationNotes || viewFIR.investigationNotes.length === 0) ? (
+   595→                  <p className="text-sm text-muted-foreground bg-slate-50 p-4 rounded-lg text-center">No investigation notes yet.</p>
+   596→                ) : (
+   597→                  <div className="space-y-3 max-h-64 overflow-y-auto">
+   598→                    {viewFIR.investigationNotes.map(n => (
+   599→                      <div key={n.id} className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+   600→                        <div className="flex items-center justify-between mb-1">
+   601→                          <span className="font-medium text-sm">{n.officerName}</span>
+   602→                          <span className="text-xs text-muted-foreground">{fmtDT(n.createdAt)}</span>
+   603→                        </div>
+   604→                        <p className="text-sm">{n.note}</p>
+   605→                        {n.actionTaken && <p className="text-xs text-violet-700 mt-1 bg-violet-50 px-2 py-1 rounded inline-block">Action: {n.actionTaken}</p>}
+   606→                      </div>
+   607→                    ))}
+   608→                  </div>
+   609→                )}
+   610→              </div>
+   611→            </div>
+   612→          </>}
+   613→        </DialogContent>
+   614→      </Dialog>
+   615→
+   616→      {/* Add Note Dialog */}
+   617→      <Dialog open={showNoteDialog} onOpenChange={setShowNoteDialog}>
+   618→        <DialogContent><DialogHeader><DialogTitle>Add Investigation Note</DialogTitle><DialogDescription>Record your investigation findings and actions.</DialogDescription></DialogHeader>
+   619→        <div className="grid gap-4 py-2">
+   620→          <div><Label>Officer Name *</Label><Input value={noteOfficer} onChange={e => setNoteOfficer(e.target.value)} placeholder="Your name" /></div>
+   621→          <div><Label>Note *</Label><Textarea value={noteText} onChange={e => setNoteText(e.target.value)} rows={3} placeholder="Investigation findings..." /></div>
+   622→          <div><Label>Action Taken</Label><Textarea value={noteAction} onChange={e => setNoteAction(e.target.value)} rows={2} placeholder="Actions taken based on findings..." /></div>
+   623→        </div>
+   624→        <DialogFooter><Button variant="outline" onClick={() => setShowNoteDialog(false)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleAddNote}>Add Note</Button></DialogFooter>
+   625→      </DialogContent>
+   626→      </Dialog>
+   627→
+   628→      {/* Edit FIR Dialog */}
+   629→      <Dialog open={!!editFIR} onOpenChange={() => setEditFIR(null)}>
+   630→        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+   631→          <DialogHeader><DialogTitle>Edit FIR - {editFIR?.firNumber}</DialogTitle></DialogHeader>
+   632→          {editFIR && <div className="grid gap-4 py-4">
+   633→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   634→              <div><Label>Status</Label><Select value={editFIR.status} onValueChange={v => setEditFIR({...editFIR, status: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Open">Open</SelectItem><SelectItem value="Under Investigation">Under Investigation</SelectItem><SelectItem value="Closed">Closed</SelectItem><SelectItem value="Transferred">Transferred</SelectItem></SelectContent></Select></div>
+   635→              <div><Label>Priority</Label><Select value={editFIR.priority} onValueChange={v => setEditFIR({...editFIR, priority: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Low">Low</SelectItem><SelectItem value="Medium">Medium</SelectItem><SelectItem value="High">High</SelectItem><SelectItem value="Critical">Critical</SelectItem></SelectContent></Select></div>
+   636→            </div>
+   637→            <div><Label>Complainant Name</Label><Input value={editFIR.complainantName} onChange={e => setEditFIR({...editFIR, complainantName: e.target.value})} /></div>
+   638→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><Label>Phone</Label><Input value={editFIR.complainantPhone || ''} onChange={e => setEditFIR({...editFIR, complainantPhone: e.target.value})} /></div><div><Label>Address</Label><Input value={editFIR.complainantAddress || ''} onChange={e => setEditFIR({...editFIR, complainantAddress: e.target.value})} /></div></div>
+   639→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><Label>Incident Date</Label><Input type="date" value={editFIR.incidentDate ? editFIR.incidentDate.split('T')[0] : ''} onChange={e => setEditFIR({...editFIR, incidentDate: e.target.value})} /></div><div><Label>Location</Label><Input value={editFIR.incidentLocation} onChange={e => setEditFIR({...editFIR, incidentLocation: e.target.value})} /></div></div>
+   640→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><Label>Crime Category</Label><Select value={editFIR.crimeCategory} onValueChange={v => setEditFIR({...editFIR, crimeCategory: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Theft">Theft</SelectItem><SelectItem value="Assault">Assault</SelectItem><SelectItem value="Robbery">Robbery</SelectItem><SelectItem value="Fraud">Fraud</SelectItem><SelectItem value="Vehicle Theft">Vehicle Theft</SelectItem><SelectItem value="Vandalism">Vandalism</SelectItem><SelectItem value="Domestic Violence">Domestic Violence</SelectItem></SelectContent></Select></div><div><Label>Assigned To</Label><Input value={editFIR.assignedTo || ''} onChange={e => setEditFIR({...editFIR, assignedTo: e.target.value})} /></div></div>
+   641→            <div><Label>Description</Label><Textarea value={editFIR.description} onChange={e => setEditFIR({...editFIR, description: e.target.value})} rows={3} /></div>
+   642→            <div><Label>Accused Names</Label><Input value={editFIR.accusedNames || ''} onChange={e => setEditFIR({...editFIR, accusedNames: e.target.value})} /></div>
+   643→          </div>}
+   644→          <DialogFooter><Button variant="outline" onClick={() => setEditFIR(null)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleUpdate}>Save Changes</Button></DialogFooter>
+   645→        </DialogContent>
+   646→      </Dialog>
+   647→    </div>
+   648→  )
+   649→}
+   650→
+   651→// ========== PERSONNEL MODULE ==========
+   652→function PersonnelModule() {
+   653→  const [officers, setOfficers] = useState<Officer[]>([])
+   654→  const [loading, setLoading] = useState(true)
+   655→  const [search, setSearch] = useState('')
+   656→  const [filterDept, setFilterDept] = useState('')
+   657→  const [filterStatus, setFilterStatus] = useState('')
+   658→  const [viewOfficer, setViewOfficer] = useState<Officer | null>(null)
+   659→  const [editOfficer, setEditOfficer] = useState<Officer | null>(null)
+   660→  const [showCreate, setShowCreate] = useState(false)
+   661→  const [form, setForm] = useState({ badgeNumber: '', name: '', rank: 'Officer', department: 'General Patrol', phone: '', email: '', status: 'Active' })
+   662→
+   663→  const loadOfficers = () => {
+   664→    setLoading(true)
+   665→    const params = new URLSearchParams()
+   666→    if (search) params.set('search', search)
+   667→    if (filterDept) params.set('department', filterDept)
+   668→    if (filterStatus) params.set('status', filterStatus)
+   669→    fetch(`/api/officers?${params}`).then(r => r.json()).then(d => { setOfficers(Array.isArray(d) ? d : []); setLoading(false) }).catch(() => setLoading(false))
+   670→  }
+   671→
+   672→  useEffect(() => {
+   673→    const params = new URLSearchParams()
+   674→    if (search) params.set('search', search)
+   675→    if (filterDept) params.set('department', filterDept)
+   676→    if (filterStatus) params.set('status', filterStatus)
+   677→    fetch(`/api/officers?${params}`).then(r => r.json()).then(d => { setOfficers(Array.isArray(d) ? d : []); setLoading(false) }).catch(() => setLoading(false))
+   678→  }, [search, filterDept, filterStatus])
+   679→
+   680→  const handleCreate = async () => {
+   681→    const res = await fetch('/api/officers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+   682→    if (res.ok) { setShowCreate(false); setForm({ badgeNumber: '', name: '', rank: 'Officer', department: 'General Patrol', phone: '', email: '', status: 'Active' }); loadOfficers() }
+   683→  }
+   684→
+   685→  const handleUpdate = async () => {
+   686→    if (!editOfficer) return
+   687→    await fetch(`/api/officers/${editOfficer.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editOfficer) })
+   688→    setEditOfficer(null); loadOfficers()
+   689→  }
+   690→
+   691→  const handleDelete = async (id: string) => {
+   692→    if (!confirm('Delete this officer?')) return
+   693→    await fetch(`/api/officers/${id}`, { method: 'DELETE' })
+   694→    setViewOfficer(null); loadOfficers()
+   695→  }
+   696→
+   697→  const handleViewOfficer = async (id: string) => {
+   698→    const res = await fetch(`/api/officers/${id}`)
+   699→    if (res.ok) { const d = await res.json(); setViewOfficer(d) }
+   700→  }
+   701→
+   702→  return (
+   703→    <div className="space-y-4">
+   704→      <Card>
+   705→        <CardContent className="p-4">
+   706→          <div className="flex flex-col sm:flex-row gap-3">
+   707→            <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Search officers..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" /></div>
+   708→            <Select value={filterDept} onValueChange={v => setFilterDept(v === 'all' ? '' : v)}><SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="Department" /></SelectTrigger><SelectContent><SelectItem value="all">All Departments</SelectItem><SelectItem value="General Patrol">General Patrol</SelectItem><SelectItem value="Investigations">Investigations</SelectItem><SelectItem value="Traffic">Traffic</SelectItem><SelectItem value="Administration">Administration</SelectItem></SelectContent></Select>
+   709→            <Select value={filterStatus} onValueChange={v => setFilterStatus(v === 'all' ? '' : v)}><SelectTrigger className="w-full sm:w-36"><SelectValue placeholder="Status" /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="Active">Active</SelectItem><SelectItem value="On Leave">On Leave</SelectItem><SelectItem value="Suspended">Suspended</SelectItem></SelectContent></Select>
+   710→            <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogTrigger asChild><Button className="bg-violet-600 hover:bg-violet-700"><Plus className="h-4 w-4 mr-1" /> Add Officer</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Add New Officer</DialogTitle></DialogHeader><div className="grid gap-4 py-4"><div className="grid grid-cols-2 gap-4"><div><Label>Badge Number *</Label><Input value={form.badgeNumber} onChange={e => setForm({...form, badgeNumber: e.target.value})} placeholder="P-XXXX" /></div><div><Label>Rank</Label><Select value={form.rank} onValueChange={v => setForm({...form, rank: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Constable">Constable</SelectItem><SelectItem value="Sergeant">Sergeant</SelectItem><SelectItem value="Inspector">Inspector</SelectItem><SelectItem value="Commissioner">Commissioner</SelectItem></SelectContent></Select></div></div><div><Label>Full Name *</Label><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></div><div className="grid grid-cols-2 gap-4"><div><Label>Department</Label><Select value={form.department} onValueChange={v => setForm({...form, department: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="General Patrol">General Patrol</SelectItem><SelectItem value="Investigations">Investigations</SelectItem><SelectItem value="Traffic">Traffic</SelectItem><SelectItem value="Administration">Administration</SelectItem></SelectContent></Select></div><div><Label>Phone</Label><Input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} /></div></div><div><Label>Email</Label><Input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} /></div></div><DialogFooter><Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleCreate}>Add Officer</Button></DialogFooter></DialogContent></Dialog>
+   711→          </div>
+   712→        </CardContent>
+   713→      </Card>
+   714→
+   715→      <Card>
+   716→        <CardContent className="p-0">
+   717→          <div className="max-h-[500px] overflow-y-auto">
+   718→            <Table>
+   719→              <TableHeader><TableRow><TableHead>Badge #</TableHead><TableHead>Name</TableHead><TableHead>Rank</TableHead><TableHead className="hidden md:table-cell">Department</TableHead><TableHead>Status</TableHead><TableHead className="hidden sm:table-cell">Phone</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   720→              <TableBody>
+   721→                {loading ? <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">Loading...</td></tr> :
+   722→                officers.length === 0 ? <SkeletonRow /> :
+   723→                officers.map(o => (
+   724→                  <TableRow key={o.id}>
+   725→                    <TableCell className="font-mono text-sm font-medium text-violet-700">{o.badgeNumber}</TableCell>
+   726→                    <TableCell className="font-medium">{o.name}</TableCell>
+   727→                    <TableCell><Badge variant="outline" className="border-slate-200">{o.rank}</Badge></TableCell>
+   728→                    <TableCell className="hidden md:table-cell text-muted-foreground">{o.department}</TableCell>
+   729→                    <TableCell><StatusBadge status={o.status} /></TableCell>
+   730→                    <TableCell className="hidden sm:table-cell text-muted-foreground">{o.phone || '—'}</TableCell>
+   731→                    <TableCell className="text-right">
+   732→                      <div className="flex justify-end gap-1">
+   733→                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleViewOfficer(o.id)}><Eye className="h-4 w-4" /></Button>
+   734→                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditOfficer(o)}><Edit className="h-4 w-4" /></Button>
+   735→                        <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => handleDelete(o.id)}><Trash2 className="h-4 w-4" /></Button>
+   736→                      </div>
+   737→                    </TableCell>
+   738→                  </TableRow>
+   739→                ))}
+   740→              </TableBody>
+   741→            </Table>
+   742→          </div>
+   743→        </CardContent>
+   744→      </Card>
+   745→
+   746→      {/* View Officer Dialog */}
+   747→      <Dialog open={!!viewOfficer} onOpenChange={() => setViewOfficer(null)}>
+   748→        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+   749→          {viewOfficer && <>
+   750→            <DialogHeader>
+   751→              <div className="flex items-center gap-3"><div className="h-12 w-12 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 font-bold text-lg">{viewOfficer.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><DialogTitle>{viewOfficer.name}</DialogTitle><DialogDescription>{viewOfficer.rank} • {viewOfficer.department} • {viewOfficer.badgeNumber}</DialogDescription></div><StatusBadge status={viewOfficer.status} /></div>
+   752→            </DialogHeader>
+   753→            <Tabs defaultValue="info" className="mt-2">
+   754→              <TabsList className="grid w-full grid-cols-4"><TabsTrigger value="info">Info</TabsTrigger><TabsTrigger value="attendance">Attendance</TabsTrigger><TabsTrigger value="leaves">Leaves</TabsTrigger><TabsTrigger value="duties">Duties</TabsTrigger></TabsList>
+   755→              <TabsContent value="info" className="mt-4 space-y-3">
+   756→                <div className="grid grid-cols-2 gap-4">
+   757→                  <div className="flex items-center gap-2"><Phone className="h-4 w-4 text-muted-foreground" /><span className="text-sm">{viewOfficer.phone || 'No phone'}</span></div>
+   758→                  <div className="flex items-center gap-2"><Mail className="h-4 w-4 text-muted-foreground" /><span className="text-sm">{viewOfficer.email || 'No email'}</span></div>
+   759→                </div>
+   760→                <div className="flex gap-2 mt-4">
+   761→                  <Button variant="outline" size="sm" onClick={() => { setEditOfficer(viewOfficer); setViewOfficer(null) }}><Edit className="h-4 w-4 mr-1" />Edit</Button>
+   762→                  <Button variant="outline" size="sm" className="text-red-600" onClick={() => handleDelete(viewOfficer.id)}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>
+   763→                </div>
+   764→              </TabsContent>
+   765→              <TabsContent value="attendance" className="mt-4">
+   766→                <div className="max-h-64 overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Check In</TableHead><TableHead>Check Out</TableHead><TableHead>Hours</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{(!viewOfficer.attendances || viewOfficer.attendances.length === 0) ? <SkeletonRow /> : viewOfficer.attendances.slice(0, 14).map(a => (<TableRow key={a.id}><TableCell className="text-sm">{fmt(a.date)}</TableCell><TableCell className="text-sm">{fmtTime(a.checkIn)}</TableCell><TableCell className="text-sm">{fmtTime(a.checkOut)}</TableCell><TableCell className="text-sm">{a.hoursWorked || '—'}</TableCell><TableCell><StatusBadge status={a.status} /></TableCell></TableRow>))}</TableBody></Table></div>
+   767→              </TabsContent>
+   768→              <TabsContent value="leaves" className="mt-4">
+   769→                <div className="max-h-64 overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Type</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Days</TableHead><TableHead>Status</TableHead></TableRow></TableHeader><TableBody>{(!viewOfficer.leaveRequests || viewOfficer.leaveRequests.length === 0) ? <SkeletonRow /> : viewOfficer.leaveRequests.map(l => (<TableRow key={l.id}><TableCell className="text-sm">{l.leaveType}</TableCell><TableCell className="text-sm">{fmt(l.startDate)}</TableCell><TableCell className="text-sm">{fmt(l.endDate)}</TableCell><TableCell className="text-sm">{l.days || '—'}</TableCell><TableCell><StatusBadge status={l.status} /></TableCell></TableRow>))}</TableBody></Table></div>
+   770→              </TabsContent>
+   771→              <TabsContent value="duties" className="mt-4">
+   772→                <div className="max-h-64 overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Shift</TableHead><TableHead>Post Area</TableHead><TableHead>Time</TableHead></TableRow></TableHeader><TableBody>{(!viewOfficer.dutyAssignments || viewOfficer.dutyAssignments.length === 0) ? <SkeletonRow /> : viewOfficer.dutyAssignments.slice(0, 14).map(d => (<TableRow key={d.id}><TableCell className="text-sm">{fmt(d.assignedDate)}</TableCell><TableCell><Badge variant="outline" className="border-slate-200">{d.shiftType}</Badge></TableCell><TableCell className="text-sm">{d.postArea || '—'}</TableCell><TableCell className="text-sm">{d.startTime} - {d.endTime}</TableCell></TableRow>))}</TableBody></Table></div>
+   773→              </TabsContent>
+   774→            </Tabs>
+   775→          </>}
+   776→        </DialogContent>
+   777→      </Dialog>
+   778→
+   779→      {/* Edit Officer Dialog */}
+   780→      <Dialog open={!!editOfficer} onOpenChange={() => setEditOfficer(null)}>
+   781→        <DialogContent><DialogHeader><DialogTitle>Edit Officer</DialogTitle></DialogHeader>
+   782→          {editOfficer && <div className="grid gap-4 py-4">
+   783→            <div className="grid grid-cols-2 gap-4"><div><Label>Badge Number</Label><Input value={editOfficer.badgeNumber} onChange={e => setEditOfficer({...editOfficer, badgeNumber: e.target.value})} /></div><div><Label>Rank</Label><Select value={editOfficer.rank} onValueChange={v => setEditOfficer({...editOfficer, rank: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Constable">Constable</SelectItem><SelectItem value="Sergeant">Sergeant</SelectItem><SelectItem value="Inspector">Inspector</SelectItem><SelectItem value="Commissioner">Commissioner</SelectItem></SelectContent></Select></div></div>
+   784→            <div><Label>Name</Label><Input value={editOfficer.name} onChange={e => setEditOfficer({...editOfficer, name: e.target.value})} /></div>
+   785→            <div className="grid grid-cols-2 gap-4"><div><Label>Department</Label><Select value={editOfficer.department} onValueChange={v => setEditOfficer({...editOfficer, department: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="General Patrol">General Patrol</SelectItem><SelectItem value="Investigations">Investigations</SelectItem><SelectItem value="Traffic">Traffic</SelectItem><SelectItem value="Administration">Administration</SelectItem></SelectContent></Select></div><div><Label>Status</Label><Select value={editOfficer.status} onValueChange={v => setEditOfficer({...editOfficer, status: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Active">Active</SelectItem><SelectItem value="On Leave">On Leave</SelectItem><SelectItem value="Suspended">Suspended</SelectItem></SelectContent></Select></div></div>
+   786→            <div className="grid grid-cols-2 gap-4"><div><Label>Phone</Label><Input value={editOfficer.phone || ''} onChange={e => setEditOfficer({...editOfficer, phone: e.target.value})} /></div><div><Label>Email</Label><Input value={editOfficer.email || ''} onChange={e => setEditOfficer({...editOfficer, email: e.target.value})} /></div></div>
+   787→          </div>}
+   788→          <DialogFooter><Button variant="outline" onClick={() => setEditOfficer(null)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleUpdate}>Save</Button></DialogFooter>
+   789→        </DialogContent>
+   790→      </Dialog>
+   791→    </div>
+   792→  )
+   793→}
+   794→
+   795→// ========== DUTY & ATTENDANCE MODULE ==========
+   796→function DutyModule() {
+   797→  const [tab, setTab] = useState('duties')
+   798→  const [duties, setDuties] = useState<DutyAssignment[]>([])
+   799→  const [attendance, setAttendance] = useState<Attendance[]>([])
+   800→  const [officers, setOfficers] = useState<Officer[]>([])
+   801→  const [loading, setLoading] = useState(true)
+   802→  const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0])
+   803→  const [showAssign, setShowAssign] = useState(false)
+   804→  const [assignForm, setAssignForm] = useState({ officerId: '', shiftType: 'Day', postArea: '', assignedDate: new Date().toISOString().split('T')[0], startTime: '06:00', endTime: '14:00' })
+   805→
+   806→  const loadData = () => {
+   807→    setLoading(true)
+   808→    Promise.all([
+   809→      fetch(`/api/duty-assignments?date=${dateFilter}`).then(r => r.json()),
+   810→      fetch(`/api/attendance?date=${dateFilter}`).then(r => r.json()),
+   811→      fetch('/api/officers').then(r => r.json()),
+   812→    ]).then(([d, a, o]) => {
+   813→      setDuties(Array.isArray(d) ? d : [])
+   814→      setAttendance(Array.isArray(a) ? a : [])
+   815→      setOfficers(Array.isArray(o) ? o : [])
+   816→      setLoading(false)
+   817→    }).catch(() => setLoading(false))
+   818→  }
+   819→
+   820→  useEffect(() => {
+   821→    Promise.all([
+   822→      fetch(`/api/duty-assignments?date=${dateFilter}`).then(r => r.json()),
+   823→      fetch(`/api/attendance?date=${dateFilter}`).then(r => r.json()),
+   824→      fetch('/api/officers').then(r => r.json()),
+   825→    ]).then(([d, a, o]) => {
+   826→      setDuties(Array.isArray(d) ? d : [])
+   827→      setAttendance(Array.isArray(a) ? a : [])
+   828→      setOfficers(Array.isArray(o) ? o : [])
+   829→      setLoading(false)
+   830→    }).catch(() => setLoading(false))
+   831→  }, [dateFilter])
+   832→
+   833→  const handleAssign = async () => {
+   834→    if (!assignForm.officerId) return
+   835→    const res = await fetch('/api/duty-assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(assignForm) })
+   836→    if (res.ok) { setShowAssign(false); setAssignForm({ officerId: '', shiftType: 'Day', postArea: '', assignedDate: new Date().toISOString().split('T')[0], startTime: '06:00', endTime: '14:00' }); loadData() }
+   837→  }
+   838→
+   839→  const handleCheckIn = async (officerId: string) => {
+   840→    await fetch('/api/attendance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ officerId, date: dateFilter, status: 'Present' }) })
+   841→    loadData()
+   842→  }
+   843→
+   844→  const handleCheckOut = async (officerId: string) => {
+   845→    await fetch('/api/attendance', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ officerId, date: dateFilter }) })
+   846→    loadData()
+   847→  }
+   848→
+   849→  const todayAttendance = (officerId: string) => attendance.find(a => a.officerId === officerId)
+   850→
+   851→  return (
+   852→    <div className="space-y-4">
+   853→      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+   854→        <div className="flex items-center gap-3">
+   855→          <Label>Date</Label>
+   856→          <Input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} className="w-44" />
+   857→        </div>
+   858→        <Dialog open={showAssign} onOpenChange={setShowAssign}><DialogTrigger asChild><Button className="bg-violet-600 hover:bg-violet-700"><Plus className="h-4 w-4 mr-1" /> Assign Duty</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Assign Duty</DialogTitle></DialogHeader><div className="grid gap-4 py-4"><div><Label>Officer *</Label><Select value={assignForm.officerId} onValueChange={v => setAssignForm({...assignForm, officerId: v})}><SelectTrigger><SelectValue placeholder="Select officer" /></SelectTrigger><SelectContent>{officers.filter(o => o.status === 'Active').map(o => <SelectItem key={o.id} value={o.id}>{o.name} ({o.badgeNumber})</SelectItem>)}</SelectContent></Select></div><div className="grid grid-cols-2 gap-4"><div><Label>Shift</Label><Select value={assignForm.shiftType} onValueChange={v => setAssignForm({...assignForm, shiftType: v, startTime: v === 'Day' ? '06:00' : v === 'Night' ? '18:00' : '08:00', endTime: v === 'Day' ? '14:00' : v === 'Night' ? '06:00' : '16:00'})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Day">Day</SelectItem><SelectItem value="Night">Night</SelectItem><SelectItem value="Patrol">Patrol</SelectItem></SelectContent></Select></div><div><Label>Post Area</Label><Input value={assignForm.postArea} onChange={e => setAssignForm({...assignForm, postArea: e.target.value})} placeholder="e.g. Bole Area" /></div></div><div className="grid grid-cols-2 gap-4"><div><Label>Start Time</Label><Input type="time" value={assignForm.startTime} onChange={e => setAssignForm({...assignForm, startTime: e.target.value})} /></div><div><Label>End Time</Label><Input type="time" value={assignForm.endTime} onChange={e => setAssignForm({...assignForm, endTime: e.target.value})} /></div></div></div><DialogFooter><Button variant="outline" onClick={() => setShowAssign(false)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleAssign}>Assign</Button></DialogFooter></DialogContent></Dialog>
+   859→      </div>
+   860→
+   861→      <Tabs value={tab} onValueChange={setTab}>
+   862→        <TabsList><TabsTrigger value="duties">Duty Assignments</TabsTrigger><TabsTrigger value="attendance">Attendance</TabsTrigger></TabsList>
+   863→
+   864→        <TabsContent value="duties" className="mt-4">
+   865→          <Card><CardContent className="p-0">
+   866→            <div className="max-h-[500px] overflow-y-auto">
+   867→              <Table><TableHeader><TableRow><TableHead>Officer</TableHead><TableHead>Badge</TableHead><TableHead>Shift</TableHead><TableHead>Post Area</TableHead><TableHead>Time</TableHead></TableRow></TableHeader>
+   868→              <TableBody>
+   869→                {loading ? <tr><td colSpan={5} className="text-center py-8 text-muted-foreground">Loading...</td></tr> :
+   870→                duties.length === 0 ? <SkeletonRow /> :
+   871→                duties.map(d => (
+   872→                  <TableRow key={d.id}>
+   873→                    <TableCell className="font-medium">{d.officer?.name || 'Unknown'}</TableCell>
+   874→                    <TableCell className="font-mono text-sm text-violet-700">{d.officer?.badgeNumber || '—'}</TableCell>
+   875→                    <TableCell><Badge variant="outline" className={`${d.shiftType === 'Night' ? 'border-slate-400 text-slate-700 bg-slate-50' : d.shiftType === 'Patrol' ? 'border-violet-200 text-violet-700 bg-violet-50' : 'border-amber-200 text-amber-700 bg-amber-50'}`}>{d.shiftType}</Badge></TableCell>
+   876→                    <TableCell>{d.postArea || '—'}</TableCell>
+   877→                    <TableCell className="text-sm text-muted-foreground">{d.startTime} - {d.endTime}</TableCell>
+   878→                  </TableRow>
+   879→                ))}
+   880→              </TableBody></Table>
+   881→            </div>
+   882→          </CardContent></Card>
+   883→        </TabsContent>
+   884→
+   885→        <TabsContent value="attendance" className="mt-4">
+   886→          <Card><CardContent className="p-0">
+   887→            <div className="max-h-[500px] overflow-y-auto">
+   888→              <Table><TableHeader><TableRow><TableHead>Officer</TableHead><TableHead>Badge</TableHead><TableHead>Check In</TableHead><TableHead>Check Out</TableHead><TableHead>Hours</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+   889→              <TableBody>
+   890→                {loading ? <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">Loading...</td></tr> :
+   891→                officers.length === 0 ? <SkeletonRow /> :
+   892→                officers.map(o => {
+   893→                  const att = todayAttendance(o.id)
+   894→                  return (
+   895→                    <TableRow key={o.id}>
+   896→                      <TableCell className="font-medium">{o.name}</TableCell>
+   897→                      <TableCell className="font-mono text-sm text-violet-700">{o.badgeNumber}</TableCell>
+   898→                      <TableCell className="text-sm">{att?.checkIn ? fmtTime(att.checkIn) : '—'}</TableCell>
+   899→                      <TableCell className="text-sm">{att?.checkOut ? fmtTime(att.checkOut) : '—'}</TableCell>
+   900→                      <TableCell className="text-sm">{att?.hoursWorked ? `${att.hoursWorked}h` : '—'}</TableCell>
+   901→                      <TableCell><StatusBadge status={att?.status || 'Absent'} /></TableCell>
+   902→                      <TableCell className="text-right">
+   903→                        {!att ? <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50" onClick={() => handleCheckIn(o.id)}><UserCheck className="h-3 w-3 mr-1" />Check In</Button> :
+   904→                        !att.checkOut ? <Button size="sm" variant="outline" className="text-amber-600 border-amber-200 hover:bg-amber-50" onClick={() => handleCheckOut(o.id)}><Clock className="h-3 w-3 mr-1" />Check Out</Button> :
+   905→                        <span className="text-xs text-muted-foreground">Completed</span>}
+   906→                      </TableCell>
+   907→                    </TableRow>
+   908→                  )
+   909→                })}
+   910→              </TableBody></Table>
+   911→            </div>
+   912→          </CardContent></Card>
+   913→        </TabsContent>
+   914→      </Tabs>
+   915→    </div>
+   916→  )
+   917→}
+   918→
+   919→// ========== LEAVE MODULE ==========
+   920→function LeaveModule() {
+   921→  const [leaves, setLeaves] = useState<LeaveRequest[]>([])
+   922→  const [loading, setLoading] = useState(true)
+   923→  const [filterStatus, setFilterStatus] = useState('')
+   924→  const [showCreate, setShowCreate] = useState(false)
+   925→  const [officers, setOfficers] = useState<Officer[]>([])
+   926→  const [form, setForm] = useState({ officerId: '', leaveType: 'Annual', startDate: '', endDate: '', days: 1, reason: '' })
+   927→
+   928→  const loadLeaves = () => {
+   929→    setLoading(true)
+   930→    const params = new URLSearchParams()
+   931→    if (filterStatus) params.set('status', filterStatus)
+   932→    Promise.all([
+   933→      fetch(`/api/leave-requests?${params}`).then(r => r.json()),
+   934→      fetch('/api/officers').then(r => r.json()),
+   935→    ]).then(([l, o]) => { setLeaves(Array.isArray(l) ? l : []); setOfficers(Array.isArray(o) ? o : []); setLoading(false) }).catch(() => setLoading(false))
+   936→  }
+   937→
+   938→  useEffect(() => {
+   939→    const params = new URLSearchParams()
+   940→    if (filterStatus) params.set('status', filterStatus)
+   941→    Promise.all([
+   942→      fetch(`/api/leave-requests?${params}`).then(r => r.json()),
+   943→      fetch('/api/officers').then(r => r.json()),
+   944→    ]).then(([l, o]) => { setLeaves(Array.isArray(l) ? l : []); setOfficers(Array.isArray(o) ? o : []); setLoading(false) }).catch(() => setLoading(false))
+   945→  }, [filterStatus])
+   946→
+   947→  const handleCreate = async () => {
+   948→    if (!form.officerId || !form.startDate || !form.endDate) return
+   949→    const start = new Date(form.startDate); const end = new Date(form.endDate)
+   950→    const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+   951→    const res = await fetch('/api/leave-requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, days }) })
+   952→    if (res.ok) { setShowCreate(false); setForm({ officerId: '', leaveType: 'Annual', startDate: '', endDate: '', days: 1, reason: '' }); loadLeaves() }
+   953→  }
+   954→
+   955→  const handleApprove = async (id: string) => {
+   956→    await fetch(`/api/leave-requests/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'Approved', approvedBy: 'Admin User' }) })
+   957→    loadLeaves()
+   958→  }
+   959→
+   960→  const handleReject = async (id: string) => {
+   961→    await fetch(`/api/leave-requests/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'Rejected', approvedBy: 'Admin User' }) })
+   962→    loadLeaves()
+   963→  }
+   964→
+   965→  const handleDelete = async (id: string) => {
+   966→    if (!confirm('Delete this leave request?')) return
+   967→    await fetch(`/api/leave-requests/${id}`, { method: 'DELETE' })
+   968→    loadLeaves()
+   969→  }
+   970→
+   971→  const pendingCount = leaves.filter(l => l.status === 'Pending').length
+   972→
+   973→  return (
+   974→    <div className="space-y-4">
+   975→      {pendingCount > 0 && <Alert className="border-amber-200 bg-amber-50"><AlertTriangle className="h-4 w-4 text-amber-600" /><AlertTitle className="text-amber-800">Pending Approval</AlertTitle><AlertDescription className="text-amber-700">You have {pendingCount} leave request{pendingCount > 1 ? 's' : ''} awaiting approval.</AlertDescription></Alert>}
+   976→
+   977→      <Card>
+   978→        <CardContent className="p-4">
+   979→          <div className="flex flex-col sm:flex-row gap-3">
+   980→            <Select value={filterStatus} onValueChange={v => setFilterStatus(v === 'all' ? '' : v)}><SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="Filter Status" /></SelectTrigger><SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="Pending">Pending</SelectItem><SelectItem value="Approved">Approved</SelectItem><SelectItem value="Rejected">Rejected</SelectItem></SelectContent></Select>
+   981→            <div className="sm:ml-auto">
+   982→              <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogTrigger asChild><Button className="bg-violet-600 hover:bg-violet-700"><Plus className="h-4 w-4 mr-1" /> New Request</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>New Leave Request</DialogTitle></DialogHeader><div className="grid gap-4 py-4"><div><Label>Officer *</Label><Select value={form.officerId} onValueChange={v => setForm({...form, officerId: v})}><SelectTrigger><SelectValue placeholder="Select officer" /></SelectTrigger><SelectContent>{officers.filter(o => o.status === 'Active').map(o => <SelectItem key={o.id} value={o.id}>{o.name} ({o.badgeNumber})</SelectItem>)}</SelectContent></Select></div><div><Label>Leave Type</Label><Select value={form.leaveType} onValueChange={v => setForm({...form, leaveType: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Annual">Annual</SelectItem><SelectItem value="Sick">Sick</SelectItem><SelectItem value="Emergency">Emergency</SelectItem><SelectItem value="Maternity">Maternity</SelectItem></SelectContent></Select></div><div className="grid grid-cols-2 gap-4"><div><Label>Start Date *</Label><Input type="date" value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} /></div><div><Label>End Date *</Label><Input type="date" value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} /></div></div><div><Label>Reason</Label><Textarea value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} rows={2} /></div></div><DialogFooter><Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleCreate}>Submit</Button></DialogFooter></DialogContent></Dialog>
+   983→            </div>
+   984→          </div>
+   985→        </CardContent>
+   986→      </Card>
+   987→
+   988→      <Card>
+   989→        <CardContent className="p-0">
+   990→          <div className="max-h-[500px] overflow-y-auto">
+   991→            <Table><TableHeader><TableRow><TableHead>Officer</TableHead><TableHead>Type</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Days</TableHead><TableHead>Reason</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
+   992→              {loading ? <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">Loading...</td></tr> :
+   993→              leaves.length === 0 ? <SkeletonRow /> :
+   994→              leaves.map(l => (
+   995→                <TableRow key={l.id}>
+   996→                  <TableCell className="font-medium">{l.officer?.name || 'Unknown'}</TableCell>
+   997→                  <TableCell><Badge variant="outline" className="border-slate-200">{l.leaveType}</Badge></TableCell>
+   998→                  <TableCell className="text-sm">{fmt(l.startDate)}</TableCell>
+   999→                  <TableCell className="text-sm">{fmt(l.endDate)}</TableCell>
+  1000→                  <TableCell className="text-sm">{l.days || '—'}</TableCell>
+  1001→                  <TableCell className="max-w-[150px] truncate text-sm text-muted-foreground">{l.reason || '—'}</TableCell>
+  1002→                  <TableCell><StatusBadge status={l.status} /></TableCell>
+  1003→                  <TableCell className="text-right">
+  1004→                    <div className="flex justify-end gap-1">
+  1005→                      {l.status === 'Pending' && <>
+  1006→                        <Button variant="ghost" size="icon" className="h-8 w-8 text-emerald-600" onClick={() => handleApprove(l.id)} title="Approve"><CheckCircle className="h-4 w-4" /></Button>
+  1007→                        <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => handleReject(l.id)} title="Reject"><XCircle className="h-4 w-4" /></Button>
+  1008→                      </>}
+  1009→                      <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => handleDelete(l.id)} title="Delete"><Trash2 className="h-4 w-4" /></Button>
+  1010→                    </div>
+  1011→                  </TableCell>
+  1012→                </TableRow>
+  1013→              ))}
+  1014→            </TableBody></Table>
+  1015→          </div>
+  1016→        </CardContent>
+  1017→      </Card>
+  1018→    </div>
+  1019→  )
+  1020→}
+  1021→
+  1022→// ========== VEHICLES MODULE ==========
+  1023→function VehiclesModule() {
+  1024→  const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  1025→  const [loading, setLoading] = useState(true)
+  1026→  const [viewVehicle, setViewVehicle] = useState<Vehicle | null>(null)
+  1027→  const [editVehicle, setEditVehicle] = useState<Vehicle | null>(null)
+  1028→  const [showCreate, setShowCreate] = useState(false)
+  1029→  const [showAssignDialog, setShowAssignDialog] = useState(false)
+  1030→  const [showFuelDialog, setShowFuelDialog] = useState(false)
+  1031→  const [form, setForm] = useState({ registrationNumber: '', make: '', model: '', year: new Date().getFullYear(), vehicleType: 'Patrol Car', status: 'Available', insuranceExpiry: '', lastServiceDate: '', nextServiceDate: '', currentMileage: 0, notes: '' })
+  1032→  const [assignForm, setAssignForm] = useState({ officerName: '', officerBadge: '', purpose: '', assignedDate: new Date().toISOString().split('T')[0] })
+  1033→  const [fuelForm, setFuelForm] = useState({ date: new Date().toISOString().split('T')[0], fuelType: 'Diesel', liters: '', cost: '', mileage: '', filledBy: '' })
+  1034→
+  1035→  const loadVehicles = () => {
+  1036→    setLoading(true)
+  1037→    fetch('/api/vehicles').then(r => r.json()).then(d => { setVehicles(Array.isArray(d) ? d : []); setLoading(false) }).catch(() => setLoading(false))
+  1038→  }
+  1039→
+  1040→  useEffect(() => {
+  1041→    fetch('/api/vehicles').then(r => r.json()).then(d => { setVehicles(Array.isArray(d) ? d : []); setLoading(false) }).catch(() => setLoading(false))
+  1042→  }, [])
+  1043→
+  1044→  const handleCreate = async () => {
+  1045→    const res = await fetch('/api/vehicles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+  1046→    if (res.ok) { setShowCreate(false); setForm({ registrationNumber: '', make: '', model: '', year: new Date().getFullYear(), vehicleType: 'Patrol Car', status: 'Available', insuranceExpiry: '', lastServiceDate: '', nextServiceDate: '', currentMileage: 0, notes: '' }); loadVehicles() }
+  1047→  }
+  1048→
+  1049→  const handleUpdate = async () => {
+  1050→    if (!editVehicle) return
+  1051→    await fetch(`/api/vehicles/${editVehicle.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editVehicle) })
+  1052→    setEditVehicle(null); loadVehicles()
+  1053→  }
+  1054→
+  1055→  const handleDelete = async (id: string) => {
+  1056→    if (!confirm('Delete this vehicle?')) return
+  1057→    await fetch(`/api/vehicles/${id}`, { method: 'DELETE' })
+  1058→    setViewVehicle(null); loadVehicles()
+  1059→  }
+  1060→
+  1061→  const handleViewVehicle = async (id: string) => {
+  1062→    const res = await fetch(`/api/vehicles/${id}`)
+  1063→    if (res.ok) setViewVehicle(await res.json())
+  1064→  }
+  1065→
+  1066→  const handleAssignVehicle = async () => {
+  1067→    if (!viewVehicle || !assignForm.officerName) return
+  1068→    const res = await fetch(`/api/vehicles/${viewVehicle.id}/assignments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(assignForm) })
+  1069→    if (res.ok) { setShowAssignDialog(false); setAssignForm({ officerName: '', officerBadge: '', purpose: '', assignedDate: new Date().toISOString().split('T')[0] }); handleViewVehicle(viewVehicle.id); loadVehicles() }
+  1070→  }
+  1071→
+  1072→  const handleReturnVehicle = async (assignmentId: string) => {
+  1073→    if (!viewVehicle) return
+  1074→    await fetch(`/api/vehicles/${viewVehicle.id}/assignments`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: assignmentId }) })
+  1075→    handleViewVehicle(viewVehicle.id); loadVehicles()
+  1076→  }
+  1077→
+  1078→  const handleAddFuel = async () => {
+  1079→    if (!viewVehicle || !fuelForm.liters) return
+  1080→    const res = await fetch(`/api/vehicles/${viewVehicle.id}/fuel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...fuelForm, liters: parseFloat(fuelForm.liters), cost: fuelForm.cost ? parseFloat(fuelForm.cost) : undefined, mileage: fuelForm.mileage ? parseInt(fuelForm.mileage) : undefined }) })
+  1081→    if (res.ok) { setShowFuelDialog(false); setFuelForm({ date: new Date().toISOString().split('T')[0], fuelType: 'Diesel', liters: '', cost: '', mileage: '', filledBy: '' }); handleViewVehicle(viewVehicle.id) }
+  1082→  }
+  1083→
+  1084→  return (
+  1085→    <div className="space-y-4">
+  1086→      <Card>
+  1087→        <CardContent className="p-4">
+  1088→          <div className="flex justify-end">
+  1089→            <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogTrigger asChild><Button className="bg-violet-600 hover:bg-violet-700"><Plus className="h-4 w-4 mr-1" /> Add Vehicle</Button></DialogTrigger><DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Add Vehicle</DialogTitle></DialogHeader><div className="grid gap-4 py-4"><div className="grid grid-cols-2 gap-4"><div><Label>Registration # *</Label><Input value={form.registrationNumber} onChange={e => setForm({...form, registrationNumber: e.target.value})} placeholder="GOV-PD-XXX" /></div><div><Label>Type</Label><Select value={form.vehicleType} onValueChange={v => setForm({...form, vehicleType: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Patrol Car">Patrol Car</SelectItem><SelectItem value="Motorcycle">Motorcycle</SelectItem><SelectItem value="Prisoner Transport">Prisoner Transport</SelectItem><SelectItem value="Administrative">Administrative</SelectItem><SelectItem value="SUV">SUV</SelectItem></SelectContent></Select></div></div><div className="grid grid-cols-3 gap-4"><div><Label>Make *</Label><Input value={form.make} onChange={e => setForm({...form, make: e.target.value})} /></div><div><Label>Model *</Label><Input value={form.model} onChange={e => setForm({...form, model: e.target.value})} /></div><div><Label>Year</Label><Input type="number" value={form.year} onChange={e => setForm({...form, year: parseInt(e.target.value) || 2024})} /></div></div><div><Label>Mileage</Label><Input type="number" value={form.currentMileage} onChange={e => setForm({...form, currentMileage: parseInt(e.target.value) || 0})} /></div><div className="grid grid-cols-2 gap-4"><div><Label>Insurance Expiry</Label><Input type="date" value={form.insuranceExpiry} onChange={e => setForm({...form, insuranceExpiry: e.target.value})} /></div><div><Label>Next Service</Label><Input type="date" value={form.nextServiceDate} onChange={e => setForm({...form, nextServiceDate: e.target.value})} /></div></div><div><Label>Notes</Label><Textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} rows={2} /></div></div><DialogFooter><Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleCreate}>Add Vehicle</Button></DialogFooter></DialogContent></Dialog>
+  1090→          </div>
+  1091→        </CardContent>
+  1092→      </Card>
+  1093→
+  1094→      <Card>
+  1095→        <CardContent className="p-0">
+  1096→          <div className="max-h-[500px] overflow-y-auto">
+  1097→            <Table><TableHeader><TableRow><TableHead>Registration</TableHead><TableHead>Vehicle</TableHead><TableHead className="hidden md:table-cell">Type</TableHead><TableHead>Mileage</TableHead><TableHead>Status</TableHead><TableHead className="hidden sm:table-cell">Insurance</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
+  1098→              {loading ? <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">Loading...</td></tr> :
+  1099→              vehicles.length === 0 ? <SkeletonRow /> :
+  1100→              vehicles.map(v => (
+  1101→                <TableRow key={v.id}>
+  1102→                  <TableCell className="font-mono text-sm font-medium text-violet-700">{v.registrationNumber}</TableCell>
+  1103→                  <TableCell className="font-medium">{v.make} {v.model}{v.year ? ` (${v.year})` : ''}</TableCell>
+  1104→                  <TableCell className="hidden md:table-cell"><Badge variant="outline" className="border-slate-200">{v.vehicleType}</Badge></TableCell>
+  1105→                  <TableCell className="text-sm">{v.currentMileage.toLocaleString()} km</TableCell>
+  1106→                  <TableCell><StatusBadge status={v.status} /></TableCell>
+  1107→                  <TableCell className="hidden sm:table-cell text-sm">{fmt(v.insuranceExpiry)}</TableCell>
+  1108→                  <TableCell className="text-right">
+  1109→                    <div className="flex justify-end gap-1">
+  1110→                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleViewVehicle(v.id)}><Eye className="h-4 w-4" /></Button>
+  1111→                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditVehicle(v)}><Edit className="h-4 w-4" /></Button>
+  1112→                      <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => handleDelete(v.id)}><Trash2 className="h-4 w-4" /></Button>
+  1113→                    </div>
+  1114→                  </TableCell>
+  1115→                </TableRow>
+  1116→              ))}
+  1117→            </TableBody></Table>
+  1118→          </div>
+  1119→        </CardContent>
+  1120→      </Card>
+  1121→
+  1122→      {/* View Vehicle Dialog */}
+  1123→      <Dialog open={!!viewVehicle} onOpenChange={() => setViewVehicle(null)}>
+  1124→        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+  1125→          {viewVehicle && <>
+  1126→            <DialogHeader>
+  1127→              <div className="flex items-center gap-3"><Car className="h-6 w-6 text-violet-600" /><div><DialogTitle className="font-mono">{viewVehicle.registrationNumber}</DialogTitle><DialogDescription>{viewVehicle.make} {viewVehicle.model} ({viewVehicle.year || 'N/A'}) • {viewVehicle.vehicleType}</DialogDescription></div><StatusBadge status={viewVehicle.status} /></div>
+  1128→            </DialogHeader>
+  1129→            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-2">
+  1130→              <div className="bg-slate-50 p-3 rounded-lg text-center"><p className="text-xs text-muted-foreground">Mileage</p><p className="font-bold text-lg">{viewVehicle.currentMileage.toLocaleString()}</p><p className="text-xs text-muted-foreground">km</p></div>
+  1131→              <div className="bg-slate-50 p-3 rounded-lg text-center"><p className="text-xs text-muted-foreground">Insurance</p><p className="font-medium text-sm mt-1">{fmt(viewVehicle.insuranceExpiry)}</p></div>
+  1132→              <div className="bg-slate-50 p-3 rounded-lg text-center"><p className="text-xs text-muted-foreground">Last Service</p><p className="font-medium text-sm mt-1">{fmt(viewVehicle.lastServiceDate)}</p></div>
+  1133→              <div className="bg-slate-50 p-3 rounded-lg text-center"><p className="text-xs text-muted-foreground">Next Service</p><p className={`font-medium text-sm mt-1 ${viewVehicle.nextServiceDate && new Date(viewVehicle.nextServiceDate) < new Date() ? 'text-red-600' : ''}`}>{fmt(viewVehicle.nextServiceDate)}</p></div>
+  1134→            </div>
+  1135→            <div className="flex gap-2 mt-2">
+  1136→              <Button variant="outline" size="sm" onClick={() => { setEditVehicle(viewVehicle); setViewVehicle(null) }}><Edit className="h-4 w-4 mr-1" />Edit</Button>
+  1137→              <Button variant="outline" size="sm" className="text-red-600" onClick={() => handleDelete(viewVehicle.id)}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>
+  1138→              <Button size="sm" className="bg-violet-600 hover:bg-violet-700 ml-auto" onClick={() => setShowAssignDialog(true)}><CarFront className="h-4 w-4 mr-1" />Assign</Button>
+  1139→              <Button size="sm" variant="outline" className="text-amber-600 border-amber-200 hover:bg-amber-50" onClick={() => setShowFuelDialog(true)}><Fuel className="h-4 w-4 mr-1" />Add Fuel</Button>
+  1140→            </div>
+  1141→            <Tabs defaultValue="assignments" className="mt-4">
+  1142→              <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="assignments">Assignments ({viewVehicle.assignments?.length || 0})</TabsTrigger><TabsTrigger value="fuel">Fuel Logs ({viewVehicle.fuelLogs?.length || 0})</TabsTrigger></TabsList>
+  1143→              <TabsContent value="assignments" className="mt-4">
+  1144→                <div className="max-h-64 overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Officer</TableHead><TableHead>Badge</TableHead><TableHead>Purpose</TableHead><TableHead>Date</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader><TableBody>{(!viewVehicle.assignments || viewVehicle.assignments.length === 0) ? <SkeletonRow /> : viewVehicle.assignments.map(a => (<TableRow key={a.id}><TableCell className="font-medium text-sm">{a.officerName || '—'}</TableCell><TableCell className="font-mono text-sm">{a.officerBadge || '—'}</TableCell><TableCell className="text-sm max-w-[150px] truncate">{a.purpose || '—'}</TableCell><TableCell className="text-sm">{fmt(a.assignedDate)}</TableCell><TableCell><StatusBadge status={a.status} /></TableCell><TableCell className="text-right">{a.status === 'Assigned' && <Button size="sm" variant="outline" className="text-amber-600 border-amber-200" onClick={() => handleReturnVehicle(a.id)}>Return</Button>}</TableCell></TableRow>))}</TableBody></Table></div>
+  1145→              </TabsContent>
+  1146→              <TabsContent value="fuel" className="mt-4">
+  1147→                <div className="max-h-64 overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Liters</TableHead><TableHead>Cost</TableHead><TableHead>Mileage</TableHead><TableHead>Filled By</TableHead></TableRow></TableHeader><TableBody>{(!viewVehicle.fuelLogs || viewVehicle.fuelLogs.length === 0) ? <SkeletonRow /> : viewVehicle.fuelLogs.map(f => (<TableRow key={f.id}><TableCell className="text-sm">{fmt(f.date)}</TableCell><TableCell><Badge variant="outline" className="border-slate-200">{f.fuelType}</Badge></TableCell><TableCell className="text-sm">{f.liters}L</TableCell><TableCell className="text-sm">{f.cost ? `${f.cost.toLocaleString()} ETB` : '—'}</TableCell><TableCell className="text-sm">{f.mileage?.toLocaleString() || '—'} km</TableCell><TableCell className="text-sm">{f.filledBy || '—'}</TableCell></TableRow>))}</TableBody></Table></div>
+  1148→              </TabsContent>
+  1149→            </Tabs>
+  1150→          </>}
+  1151→        </DialogContent>
+  1152→      </Dialog>
+  1153→
+  1154→      {/* Assign Dialog */}
+  1155→      <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
+  1156→        <DialogContent><DialogHeader><DialogTitle>Assign Vehicle</DialogTitle></DialogHeader><div className="grid gap-4 py-4"><div><Label>Officer Name *</Label><Input value={assignForm.officerName} onChange={e => setAssignForm({...assignForm, officerName: e.target.value})} /></div><div><Label>Badge Number</Label><Input value={assignForm.officerBadge} onChange={e => setAssignForm({...assignForm, officerBadge: e.target.value})} /></div><div><Label>Purpose</Label><Textarea value={assignForm.purpose} onChange={e => setAssignForm({...assignForm, purpose: e.target.value})} rows={2} /></div><div><Label>Date</Label><Input type="date" value={assignForm.assignedDate} onChange={e => setAssignForm({...assignForm, assignedDate: e.target.value})} /></div></div><DialogFooter><Button variant="outline" onClick={() => setShowAssignDialog(false)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleAssignVehicle}>Assign</Button></DialogFooter></DialogContent>
+  1157→      </Dialog>
+  1158→
+  1159→      {/* Fuel Dialog */}
+  1160→      <Dialog open={showFuelDialog} onOpenChange={setShowFuelDialog}>
+  1161→        <DialogContent><DialogHeader><DialogTitle>Add Fuel Log</DialogTitle></DialogHeader><div className="grid gap-4 py-4"><div><Label>Date</Label><Input type="date" value={fuelForm.date} onChange={e => setFuelForm({...fuelForm, date: e.target.value})} /></div><div className="grid grid-cols-2 gap-4"><div><Label>Fuel Type</Label><Select value={fuelForm.fuelType} onValueChange={v => setFuelForm({...fuelForm, fuelType: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Diesel">Diesel</SelectItem><SelectItem value="Petrol">Petrol</SelectItem></SelectContent></Select></div><div><Label>Liters *</Label><Input type="number" value={fuelForm.liters} onChange={e => setFuelForm({...fuelForm, liters: e.target.value})} /></div></div><div className="grid grid-cols-2 gap-4"><div><Label>Cost (ETB)</Label><Input type="number" value={fuelForm.cost} onChange={e => setFuelForm({...fuelForm, cost: e.target.value})} /></div><div><Label>Mileage (km)</Label><Input type="number" value={fuelForm.mileage} onChange={e => setFuelForm({...fuelForm, mileage: e.target.value})} /></div></div><div><Label>Filled By</Label><Input value={fuelForm.filledBy} onChange={e => setFuelForm({...fuelForm, filledBy: e.target.value})} /></div></div><DialogFooter><Button variant="outline" onClick={() => setShowFuelDialog(false)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleAddFuel}>Add Fuel Log</Button></DialogFooter></DialogContent>
+  1162→      </Dialog>
+  1163→
+  1164→      {/* Edit Vehicle Dialog */}
+  1165→      <Dialog open={!!editVehicle} onOpenChange={() => setEditVehicle(null)}>
+  1166→        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Edit Vehicle</DialogTitle></DialogHeader>
+  1167→          {editVehicle && <div className="grid gap-4 py-4">
+  1168→            <div className="grid grid-cols-2 gap-4"><div><Label>Registration #</Label><Input value={editVehicle.registrationNumber} onChange={e => setEditVehicle({...editVehicle, registrationNumber: e.target.value})} /></div><div><Label>Status</Label><Select value={editVehicle.status} onValueChange={v => setEditVehicle({...editVehicle, status: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Available">Available</SelectItem><SelectItem value="Assigned">Assigned</SelectItem><SelectItem value="Maintenance">Maintenance</SelectItem><SelectItem value="Out of Service">Out of Service</SelectItem></SelectContent></Select></div></div>
+  1169→            <div className="grid grid-cols-3 gap-4"><div><Label>Make</Label><Input value={editVehicle.make} onChange={e => setEditVehicle({...editVehicle, make: e.target.value})} /></div><div><Label>Model</Label><Input value={editVehicle.model} onChange={e => setEditVehicle({...editVehicle, model: e.target.value})} /></div><div><Label>Year</Label><Input type="number" value={editVehicle.year || ''} onChange={e => setEditVehicle({...editVehicle, year: parseInt(e.target.value) || undefined})} /></div></div>
+  1170→            <div><Label>Mileage</Label><Input type="number" value={editVehicle.currentMileage} onChange={e => setEditVehicle({...editVehicle, currentMileage: parseInt(e.target.value) || 0})} /></div>
+  1171→            <div className="grid grid-cols-2 gap-4"><div><Label>Insurance Expiry</Label><Input type="date" value={editVehicle.insuranceExpiry ? editVehicle.insuranceExpiry.split('T')[0] : ''} onChange={e => setEditVehicle({...editVehicle, insuranceExpiry: e.target.value})} /></div><div><Label>Next Service</Label><Input type="date" value={editVehicle.nextServiceDate ? editVehicle.nextServiceDate.split('T')[0] : ''} onChange={e => setEditVehicle({...editVehicle, nextServiceDate: e.target.value})} /></div></div>
+  1172→            <div><Label>Notes</Label><Textarea value={editVehicle.notes || ''} onChange={e => setEditVehicle({...editVehicle, notes: e.target.value})} rows={2} /></div>
+  1173→          </div>}
+  1174→          <DialogFooter><Button variant="outline" onClick={() => setEditVehicle(null)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleUpdate}>Save</Button></DialogFooter>
+  1175→        </DialogContent>
+  1176→      </Dialog>
+  1177→    </div>
+  1178→  )
+  1179→}
+  1180→
+  1181→// ========== EQUIPMENT MODULE ==========
+  1182→function EquipmentModule() {
+  1183→  const [equipment, setEquipment] = useState<Equipment[]>([])
+  1184→  const [loading, setLoading] = useState(true)
+  1185→  const [filterCategory, setFilterCategory] = useState('')
+  1186→  const [filterCondition, setFilterCondition] = useState('')
+  1187→  const [editItem, setEditItem] = useState<Equipment | null>(null)
+  1188→  const [showCreate, setShowCreate] = useState(false)
+  1189→  const [form, setForm] = useState({ itemCode: '', name: '', category: 'Communication', quantity: 1, availableQty: 1, condition: 'Good', storageLocation: '', lastChecked: '' })
+  1190→
+  1191→  const loadEquipment = () => {
+  1192→    setLoading(true)
+  1193→    const params = new URLSearchParams()
+  1194→    if (filterCategory) params.set('category', filterCategory)
+  1195→    if (filterCondition) params.set('condition', filterCondition)
+  1196→    fetch(`/api/equipment?${params}`).then(r => r.json()).then(d => { setEquipment(Array.isArray(d) ? d : []); setLoading(false) }).catch(() => setLoading(false))
+  1197→  }
+  1198→
+  1199→  useEffect(() => {
+  1200→    const params = new URLSearchParams()
+  1201→    if (filterCategory) params.set('category', filterCategory)
+  1202→    if (filterCondition) params.set('condition', filterCondition)
+  1203→    fetch(`/api/equipment?${params}`).then(r => r.json()).then(d => { setEquipment(Array.isArray(d) ? d : []); setLoading(false) }).catch(() => setLoading(false))
+  1204→  }, [filterCategory, filterCondition])
+  1205→
+  1206→  const handleCreate = async () => {
+  1207→    const res = await fetch('/api/equipment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+  1208→    if (res.ok) { setShowCreate(false); setForm({ itemCode: '', name: '', category: 'Communication', quantity: 1, availableQty: 1, condition: 'Good', storageLocation: '', lastChecked: '' }); loadEquipment() }
+  1209→  }
+  1210→
+  1211→  const handleUpdate = async () => {
+  1212→    if (!editItem) return
+  1213→    await fetch('/api/equipment', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editItem) })
+  1214→    setEditItem(null); loadEquipment()
+  1215→  }
+  1216→
+  1217→  const handleDelete = async (id: string) => {
+  1218→    if (!confirm('Delete this equipment item?')) return
+  1219→    await fetch('/api/equipment', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
+  1220→    loadEquipment()
+  1221→  }
+  1222→
+  1223→  const totalItems = equipment.reduce((sum, e) => sum + e.quantity, 0)
+  1224→  const totalAvailable = equipment.reduce((sum, e) => sum + e.availableQty, 0)
+  1225→  const needsAttention = equipment.filter(e => e.condition === 'Poor' || e.condition === 'Needs Replacement').length
+  1226→
+  1227→  return (
+  1228→    <div className="space-y-4">
+  1229→      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+  1230→        <StatCard icon={Wrench} label="Total Items" value={totalItems} sub={`${equipment.length} categories`} color="bg-violet-600" />
+  1231→        <StatCard icon={CheckCircle} label="Available" value={totalAvailable} sub={`${totalItems - totalAvailable} in use`} color="bg-emerald-600" />
+  1232→        <StatCard icon={AlertTriangle} label="Needs Attention" value={needsAttention} sub="Poor or needs replacement" color="bg-red-600" />
+  1233→      </div>
+  1234→
+  1235→      <Card>
+  1236→        <CardContent className="p-4">
+  1237→          <div className="flex flex-col sm:flex-row gap-3">
+  1238→            <Select value={filterCategory} onValueChange={v => setFilterCategory(v === 'all' ? '' : v)}><SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All Categories</SelectItem><SelectItem value="Communication">Communication</SelectItem><SelectItem value="Protective Gear">Protective Gear</SelectItem><SelectItem value="Detection Equipment">Detection Equipment</SelectItem><SelectItem value="Traffic Equipment">Traffic Equipment</SelectItem><SelectItem value="Forensic Equipment">Forensic Equipment</SelectItem><SelectItem value="Crowd Control">Crowd Control</SelectItem><SelectItem value="Medical">Medical</SelectItem><SelectItem value="General Equipment">General Equipment</SelectItem></SelectContent></Select>
+  1239→            <Select value={filterCondition} onValueChange={v => setFilterCondition(v === 'all' ? '' : v)}><SelectTrigger className="w-full sm:w-40"><SelectValue placeholder="Condition" /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="Good">Good</SelectItem><SelectItem value="Fair">Fair</SelectItem><SelectItem value="Poor">Poor</SelectItem><SelectItem value="Needs Replacement">Needs Replacement</SelectItem></SelectContent></Select>
+  1240→            <div className="sm:ml-auto">
+  1241→              <Dialog open={showCreate} onOpenChange={setShowCreate}><DialogTrigger asChild><Button className="bg-violet-600 hover:bg-violet-700"><Plus className="h-4 w-4 mr-1" /> Add Equipment</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>Add Equipment</DialogTitle></DialogHeader><div className="grid gap-4 py-4"><div className="grid grid-cols-2 gap-4"><div><Label>Item Code *</Label><Input value={form.itemCode} onChange={e => setForm({...form, itemCode: e.target.value})} placeholder="EQ-XXX" /></div><div><Label>Category</Label><Select value={form.category} onValueChange={v => setForm({...form, category: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Communication">Communication</SelectItem><SelectItem value="Protective Gear">Protective Gear</SelectItem><SelectItem value="Detection Equipment">Detection Equipment</SelectItem><SelectItem value="Traffic Equipment">Traffic Equipment</SelectItem><SelectItem value="Forensic Equipment">Forensic Equipment</SelectItem><SelectItem value="Crowd Control">Crowd Control</SelectItem><SelectItem value="Medical">Medical</SelectItem><SelectItem value="General Equipment">General Equipment</SelectItem></SelectContent></Select></div></div><div><Label>Name *</Label><Input value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></div><div className="grid grid-cols-2 gap-4"><div><Label>Quantity</Label><Input type="number" value={form.quantity} onChange={e => setForm({...form, quantity: parseInt(e.target.value) || 1})} /></div><div><Label>Available Qty</Label><Input type="number" value={form.availableQty} onChange={e => setForm({...form, availableQty: parseInt(e.target.value) || 1})} /></div></div><div className="grid grid-cols-2 gap-4"><div><Label>Condition</Label><Select value={form.condition} onValueChange={v => setForm({...form, condition: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Good">Good</SelectItem><SelectItem value="Fair">Fair</SelectItem><SelectItem value="Poor">Poor</SelectItem><SelectItem value="Needs Replacement">Needs Replacement</SelectItem></SelectContent></Select></div><div><Label>Last Checked</Label><Input type="date" value={form.lastChecked} onChange={e => setForm({...form, lastChecked: e.target.value})} /></div></div><div><Label>Storage Location</Label><Input value={form.storageLocation} onChange={e => setForm({...form, storageLocation: e.target.value})} /></div></div><DialogFooter><Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleCreate}>Add Equipment</Button></DialogFooter></DialogContent></Dialog>
+  1242→            </div>
+  1243→          </div>
+  1244→        </CardContent>
+  1245→      </Card>
+  1246→
+  1247→      <Card>
+  1248→        <CardContent className="p-0">
+  1249→          <div className="max-h-[500px] overflow-y-auto">
+  1250→            <Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Name</TableHead><TableHead>Category</TableHead><TableHead>Qty</TableHead><TableHead>Available</TableHead><TableHead>Condition</TableHead><TableHead className="hidden md:table-cell">Location</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
+  1251→              {loading ? <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">Loading...</td></tr> :
+  1252→              equipment.length === 0 ? <SkeletonRow /> :
+  1253→              equipment.map(e => (
+  1254→                <TableRow key={e.id}>
+  1255→                  <TableCell className="font-mono text-sm font-medium text-violet-700">{e.itemCode}</TableCell>
+  1256→                  <TableCell className="font-medium">{e.name}</TableCell>
+  1257→                  <TableCell><Badge variant="outline" className="border-slate-200">{e.category}</Badge></TableCell>
+  1258→                  <TableCell>{e.quantity}</TableCell>
+  1259→                  <TableCell className={e.availableQty < e.quantity * 0.5 ? 'text-red-600 font-medium' : ''}>{e.availableQty}</TableCell>
+  1260→                  <TableCell><StatusBadge status={e.condition} /></TableCell>
+  1261→                  <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{e.storageLocation || '—'}</TableCell>
+  1262→                  <TableCell className="text-right">
+  1263→                    <div className="flex justify-end gap-1">
+  1264→                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditItem(e)}><Edit className="h-4 w-4" /></Button>
+  1265→                      <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => handleDelete(e.id)}><Trash2 className="h-4 w-4" /></Button>
+  1266→                    </div>
+  1267→                  </TableCell>
+  1268→                </TableRow>
+  1269→              ))}
+  1270→            </TableBody></Table>
+  1271→          </div>
+  1272→        </CardContent>
+  1273→      </Card>
+  1274→
+  1275→      {/* Edit Equipment Dialog */}
+  1276→      <Dialog open={!!editItem} onOpenChange={() => setEditItem(null)}>
+  1277→        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Edit Equipment - {editItem?.itemCode}</DialogTitle></DialogHeader>
+  1278→          {editItem && <div className="grid gap-4 py-4">
+  1279→            <div className="grid grid-cols-2 gap-4"><div><Label>Item Code</Label><Input value={editItem.itemCode} onChange={e => setEditItem({...editItem, itemCode: e.target.value})} /></div><div><Label>Name</Label><Input value={editItem.name} onChange={e => setEditItem({...editItem, name: e.target.value})} /></div></div>
+  1280→            <div><Label>Category</Label><Select value={editItem.category} onValueChange={v => setEditItem({...editItem, category: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Communication">Communication</SelectItem><SelectItem value="Protective Gear">Protective Gear</SelectItem><SelectItem value="Detection Equipment">Detection Equipment</SelectItem><SelectItem value="Traffic Equipment">Traffic Equipment</SelectItem><SelectItem value="Forensic Equipment">Forensic Equipment</SelectItem><SelectItem value="Crowd Control">Crowd Control</SelectItem><SelectItem value="Medical">Medical</SelectItem><SelectItem value="General Equipment">General Equipment</SelectItem></SelectContent></Select></div>
+  1281→            <div className="grid grid-cols-2 gap-4"><div><Label>Quantity</Label><Input type="number" value={editItem.quantity} onChange={e => setEditItem({...editItem, quantity: parseInt(e.target.value) || 1})} /></div><div><Label>Available</Label><Input type="number" value={editItem.availableQty} onChange={e => setEditItem({...editItem, availableQty: parseInt(e.target.value) || 0})} /></div></div>
+  1282→            <div className="grid grid-cols-2 gap-4"><div><Label>Condition</Label><Select value={editItem.condition} onValueChange={v => setEditItem({...editItem, condition: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Good">Good</SelectItem><SelectItem value="Fair">Fair</SelectItem><SelectItem value="Poor">Poor</SelectItem><SelectItem value="Needs Replacement">Needs Replacement</SelectItem></SelectContent></Select></div><div><Label>Last Checked</Label><Input type="date" value={editItem.lastChecked ? editItem.lastChecked.split('T')[0] : ''} onChange={e => setEditItem({...editItem, lastChecked: e.target.value})} /></div></div>
+  1283→            <div><Label>Storage Location</Label><Input value={editItem.storageLocation || ''} onChange={e => setEditItem({...editItem, storageLocation: e.target.value})} /></div>
+  1284→          </div>}
+  1285→          <DialogFooter><Button variant="outline" onClick={() => setEditItem(null)}>Cancel</Button><Button className="bg-violet-600 hover:bg-violet-700" onClick={handleUpdate}>Save</Button></DialogFooter>
+  1286→        </DialogContent>
+  1287→      </Dialog>
+  1288→    </div>
+  1289→  )
+  1290→}
+  1291→
+  1292→// ========== REPORTS MODULE ==========
+  1293→function ReportsModule() {
+  1294→  const [dashboard, setDashboard] = useState<DashboardData | null>(null)
+  1295→  const [firs, setFirs] = useState<FIR[]>([])
+  1296→  const [officers, setOfficers] = useState<Officer[]>([])
+  1297→  const [loading, setLoading] = useState(true)
+  1298→
+  1299→  useEffect(() => {
+  1300→    Promise.all([
+  1301→      fetch('/api/dashboard').then(r => r.json()),
+  1302→      fetch('/api/firs').then(r => r.json()),
+  1303→      fetch('/api/officers').then(r => r.json()),
+  1304→    ]).then(([d, f, o]) => {
+  1305→      setDashboard(d); setFirs(Array.isArray(f) ? f : []); setOfficers(Array.isArray(o) ? o : []); setLoading(false)
+  1306→    }).catch(() => setLoading(false))
+  1307→  }, [])
+  1308→
+  1309→  if (loading) return <div className="space-y-4"><div className="grid grid-cols-1 lg:grid-cols-2 gap-4">{Array.from({length:4}).map((_,i)=><Card key={i}><CardContent className="p-6 h-48 bg-slate-100 animate-pulse rounded-lg"/></Card>)}</div></div>
+  1310→  if (!dashboard) return <Alert variant="destructive"><AlertTriangle className="h-4 w-4"/><AlertTitle>Error</AlertTitle><AlertDescription>Failed to load report data.</AlertDescription></Alert>
+  1311→
+  1312→  const closureRate = dashboard.totalFIRs > 0 ? Math.round((dashboard.closedFIRs / dashboard.totalFIRs) * 100) : 0
+  1313→  const activeRate = dashboard.totalOfficers > 0 ? Math.round((dashboard.activeOfficers / dashboard.totalOfficers) * 100) : 0
+  1314→  const vehicleReadyRate = dashboard.totalVehicles > 0 ? Math.round(((dashboard.availableVehicles + dashboard.assignedVehicles) / dashboard.totalVehicles) * 100) : 0
+  1315→
+  1316→  const deptCount: Record<string, number> = {}
+  1317→  officers.forEach(o => { deptCount[o.department] = (deptCount[o.department] || 0) + 1 })
+  1318→
+  1319→  const statusCount: Record<string, number> = {}
+  1320→  firs.forEach(f => { statusCount[f.status] = (statusCount[f.status] || 0) + 1 })
+  1321→
+  1322→  return (
+  1323→    <div className="space-y-6">
+  1324→      {/* Overview Cards */}
+  1325→      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+  1326→        <Card>
+  1327→          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">FIR Closure Rate</CardTitle></CardHeader>
+  1328→          <CardContent><div className="flex items-end gap-2"><span className="text-3xl font-bold text-violet-700">{closureRate}%</span><TrendingUp className="h-5 w-5 text-emerald-500 mb-1" /></div><div className="mt-2 h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-violet-600 rounded-full" style={{ width: `${closureRate}%` }} /></div><p className="text-xs text-muted-foreground mt-1">{dashboard.closedFIRs} of {dashboard.totalFIRs} FIRs closed</p></CardContent>
+  1329→        </Card>
+  1330→        <Card>
+  1331→          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Officer Availability</CardTitle></CardHeader>
+  1332→          <CardContent><div className="flex items-end gap-2"><span className="text-3xl font-bold text-emerald-600">{activeRate}%</span><Activity className="h-5 w-5 text-emerald-500 mb-1" /></div><div className="mt-2 h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-emerald-600 rounded-full" style={{ width: `${activeRate}%` }} /></div><p className="text-xs text-muted-foreground mt-1">{dashboard.activeOfficers} of {dashboard.totalOfficers} officers active</p></CardContent>
+  1333→        </Card>
+  1334→        <Card>
+  1335→          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Fleet Readiness</CardTitle></CardHeader>
+  1336→          <CardContent><div className="flex items-end gap-2"><span className="text-3xl font-bold text-amber-600">{vehicleReadyRate}%</span><Car className="h-5 w-5 text-amber-500 mb-1" /></div><div className="mt-2 h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-amber-500 rounded-full" style={{ width: `${vehicleReadyRate}%` }} /></div><p className="text-xs text-muted-foreground mt-1">{dashboard.maintenanceVehicles} in maintenance</p></CardContent>
+  1337→        </Card>
+  1338→      </div>
+  1339→
+  1340→      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  1341→        {/* Crime Category Breakdown */}
+  1342→        <Card>
+  1343→          <CardHeader><CardTitle className="text-base">Crime Category Breakdown</CardTitle><CardDescription>Distribution of FIRs by crime type</CardDescription></CardHeader>
+  1344→          <CardContent className="space-y-3">
+  1345→            {(dashboard.crimeByCategory || []).length === 0 ? <p className="text-sm text-muted-foreground">No data</p> :
+  1346→            dashboard.crimeByCategory.sort((a, b) => b.count - a.count).map(c => {
+  1347→              const pct = dashboard.totalFIRs > 0 ? Math.round((c.count / dashboard.totalFIRs) * 100) : 0
+  1348→              return (
+  1349→                <div key={c.category} className="space-y-1">
+  1350→                  <div className="flex justify-between text-sm"><span className="font-medium">{c.category}</span><span className="text-muted-foreground">{c.count} ({pct}%)</span></div>
+  1351→                  <div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-violet-600 rounded-full" style={{ width: `${pct}%` }} /></div>
+  1352→                </div>
+  1353→              )
+  1354→            })}
+  1355→          </CardContent>
+  1356→        </Card>
+  1357→
+  1358→        {/* FIR Status Distribution */}
+  1359→        <Card>
+  1360→          <CardHeader><CardTitle className="text-base">FIR Status Distribution</CardTitle><CardDescription>Current status of all filed reports</CardDescription></CardHeader>
+  1361→          <CardContent className="space-y-4">
+  1362→            {Object.entries({ 'Open': dashboard.openFIRs, 'Under Investigation': dashboard.underInvestigationFIRs, 'Closed': dashboard.closedFIRs }).map(([status, count]) => {
+  1363→              const pct = dashboard.totalFIRs > 0 ? Math.round((count / dashboard.totalFIRs) * 100) : 0
+  1364→              const colors: Record<string, string> = { 'Open': 'bg-amber-500', 'Under Investigation': 'bg-violet-600', 'Closed': 'bg-emerald-600' }
+  1365→              return (
+  1366→                <div key={status} className="flex items-center gap-4">
+  1367→                  <div className={`h-10 w-10 rounded-lg ${colors[status]} flex items-center justify-center flex-shrink-0`}>{
+  1368→                    status === 'Closed' ? <CheckCircle className="h-5 w-5 text-white" /> :
+  1369→                    status === 'Open' ? <Clock className="h-5 w-5 text-white" /> :
+  1370→                    <Search className="h-5 w-5 text-white" />
+  1371→                  }</div>
+  1372→                  <div className="flex-1">
+  1373→                    <div className="flex justify-between text-sm mb-1"><span className="font-medium">{status}</span><span className="font-bold">{count}</span></div>
+  1374→                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className={`h-full ${colors[status]} rounded-full`} style={{ width: `${pct}%` }} /></div>
+  1375→                  </div>
+  1376→                  <span className="text-sm text-muted-foreground w-10 text-right">{pct}%</span>
+  1377→                </div>
+  1378→              )
+  1379→            })}
+  1380→          </CardContent>
+  1381→        </Card>
+  1382→
+  1383→        {/* Department Distribution */}
+  1384→        <Card>
+  1385→          <CardHeader><CardTitle className="text-base">Officers by Department</CardTitle><CardDescription>Personnel distribution across departments</CardDescription></CardHeader>
+  1386→          <CardContent>
+  1387→            <div className="grid grid-cols-2 gap-3">
+  1388→              {Object.entries(deptCount).map(([dept, count]) => (
+  1389→                <div key={dept} className="bg-slate-50 p-3 rounded-lg flex items-center gap-3">
+  1390→                  <div className="h-10 w-10 rounded-full bg-violet-100 flex items-center justify-center"><Users className="h-5 w-5 text-violet-600" /></div>
+  1391→                  <div><p className="font-medium text-sm">{dept}</p><p className="text-lg font-bold text-violet-700">{count}</p></div>
+  1392→                </div>
+  1393→              ))}
+  1394→            </div>
+  1395→          </CardContent>
+  1396→        </Card>
+  1397→
+  1398→        {/* Vehicle Fleet Summary */}
+  1399→        <Card>
+  1400→          <CardHeader><CardTitle className="text-base">Vehicle Fleet Summary</CardTitle><CardDescription>Current status of all department vehicles</CardDescription></CardHeader>
+  1401→          <CardContent className="space-y-3">
+  1402→            {Object.entries({ 'Available': dashboard.availableVehicles, 'Assigned': dashboard.assignedVehicles, 'Maintenance': dashboard.maintenanceVehicles }).map(([status, count]) => {
+  1403→              const colors: Record<string, string> = { 'Available': 'bg-emerald-500', 'Assigned': 'bg-violet-600', 'Maintenance': 'bg-amber-500' }
+  1404→              const icons: Record<string, React.ElementType> = { 'Available': CheckCircle, 'Assigned': Car, 'Maintenance': Wrench }
+  1405→              const Icon = icons[status]
+  1406→              return (
+  1407→                <div key={status} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+  1408→                  <div className="flex items-center gap-3">
+  1409→                    <div className={`h-8 w-8 rounded-lg ${colors[status]} flex items-center justify-center`}><Icon className="h-4 w-4 text-white" /></div>
+  1410→                    <span className="font-medium">{status}</span>
+  1411→                  </div>
+  1412→                  <span className="font-bold text-lg">{count}</span>
+  1413→                </div>
+  1414→              )
+  1415→            })}
+  1416→            <div className="mt-4 pt-4 border-t">
+  1417→              <div className="flex items-center justify-between">
+  1418→                <span className="text-sm text-muted-foreground">Total Vehicles</span>
+  1419→                <span className="font-bold text-lg">{dashboard.totalVehicles}</span>
+  1420→              </div>
+  1421→            </div>
+  1422→          </CardContent>
+  1423→        </Card>
+  1424→      </div>
+  1425→
+  1426→      {/* Priority Summary */}
+  1427→      <Card>
+  1428→        <CardHeader><CardTitle className="text-base">Priority Analysis</CardTitle><CardDescription>FIR distribution by priority level</CardDescription></CardHeader>
+  1429→        <CardContent>
+  1430→          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+  1431→            {(dashboard.firByPriority || []).map(p => {
+  1432→              const colors: Record<string, string> = { 'Critical': 'border-red-200 bg-red-50', 'High': 'border-orange-200 bg-orange-50', 'Medium': 'border-amber-200 bg-amber-50', 'Low': 'border-emerald-200 bg-emerald-50' }
+  1433→              const iconColors: Record<string, string> = { 'Critical': 'bg-red-600', 'High': 'bg-orange-500', 'Medium': 'bg-amber-500', 'Low': 'bg-emerald-600' }
+  1434→              const icons: Record<string, React.ElementType> = { 'Critical': ShieldAlert, 'High': AlertTriangle, 'Medium': CircleDot, 'Low': CheckCircle }
+  1435→              const Icon = icons[p.priority] || CircleDot
+  1436→              return (
+  1437→                <div key={p.priority} className={`border rounded-xl p-4 text-center ${colors[p.priority] || ''}`}>
+  1438→                  <div className={`h-10 w-10 rounded-full ${iconColors[p.priority] || 'bg-slate-500'} flex items-center justify-center mx-auto mb-2`}><Icon className="h-5 w-5 text-white" /></div>
+  1439→                  <p className="font-bold text-2xl">{p.count}</p>
+  1440→                  <p className="text-sm font-medium">{p.priority}</p>
+  1441→                </div>
+  1442→              )
+  1443→            })}
+  1444→          </div>
+  1445→        </CardContent>
+  1446→      </Card>
+  1447→    </div>
+  1448→  )
+  1449→}
+  1450→
