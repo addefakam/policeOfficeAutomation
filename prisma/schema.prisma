@@ -7,6 +7,57 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============ AUTHENTICATION & AUTHORIZATION ============
+
+enum Role {
+  ADMIN
+  STATION_COMMANDER
+  INVESTIGATOR
+  CLERK
+}
+
+model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  passwordHash  String
+  role          Role     @default(CLERK)
+  officerId     String?  @unique // Link to Officer profile (one-to-one)
+  officer       Officer? @relation(fields: [officerId], references: [id])
+  isActive      Boolean  @default(true)
+  lastLogin     DateTime?
+  failedAttempts Int     @default(0)
+  lockedUntil   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  auditLogs     AuditLog[]
+  investigationNotes InvestigationNote[]
+  caseTeamMembers CaseTeamMember[]
+  consultationRequestsSent     ConsultationRequest[] @relation("SentRequests")
+  consultationRequestsReceived ConsultationRequest[] @relation("ReceivedRequests")
+}
+
+// ============ AUDIT TRAIL ============
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  username    String   // Denormalized for performance — even if user deleted, log remains
+  action      String   // VIEW_CASE, EDIT_CASE, ADD_NOTE, TRANSFER_CASE, CLOSE_CASE, DELETE_CASE, CREATE_USER, LOGIN, LOGOUT, etc.
+  modelType   String   // FIR, InvestigationNote, Officer, User, etc.
+  objectId    String?  // ID of the affected record
+  details     String?  // JSON string with change details
+  ipAddress   String?
+  userAgent   String?
+  timestamp   DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([modelType, objectId])
+  @@index([timestamp])
+}
+
 // ============ MODULE 1: FIR & CASE MANAGEMENT ============
 
 model FIR {
@@ -21,23 +72,102 @@ model FIR {
   description   String
   accusedNames  String?
   status        String   @default("Open") // Open, Under Investigation, Closed, Transferred
-  assignedTo    String?
+  assignedTo    String?  // Officer name (backward compat — also in caseTeam)
   priority      String   @default("Medium") // Low, Medium, High, Critical
   station       String   @default("Main Station")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   investigationNotes InvestigationNote[]
+  caseTeam      CaseTeamMember[]
+  evidenceItems EvidenceItem[]
+  consultationRequests ConsultationRequest[]
 }
 
 model InvestigationNote {
-  id        String   @id @default(cuid())
-  firId     String
-  fir       FIR      @relation(fields: [firId], references: [id], onDelete: Cascade)
+  id          String   @id @default(cuid())
+  firId       String
+  fir         FIR      @relation(fields: [firId], references: [id], onDelete: Cascade)
+  userId      String?  // Which user added this note (nullable for seed data)
+  user        User?    @relation(fields: [userId], references: [id])
   officerName String
-  note      String
+  note        String
   actionTaken String?
-  createdAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  // NO updatedAt — notes are immutable (append-only)
+  // No cascade delete — notes persist even if user is deleted
+}
+
+// ============ CASE TEAM ============
+
+model CaseTeamMember {
+  id          String   @id @default(cuid())
+  firId       String
+  fir         FIR      @relation(fields: [firId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  officerName String
+  role        String   @default("Lead Investigator") // Lead Investigator, Supporting Investigator, Forensic Analyst, etc.
+  addedAt     DateTime @default(now())
+  addedBy     String?  // Username of who added this member
+
+  @@unique([firId, userId]) // One role per user per case
+  @@index([userId])
+}
+
+// ============ CHAIN OF CUSTODY (EVIDENCE) ============
+
+model EvidenceItem {
+  id          String   @id @default(cuid())
+  firId       String
+  fir         FIR      @relation(fields: [firId], references: [id], onDelete: Cascade)
+  itemNumber  String   // e.g., EVI-2026-001-01
+  description String
+  itemType    String   @default("Physical") // Physical, Digital, Documentary, Forensic
+  storageLocation String?
+  status      String   @default("In Storage") // In Storage, With Investigator, At Lab, In Court, Destroyed
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  custodyChain EvidenceCustody[]
+}
+
+model EvidenceCustody {
+  id          String   @id @default(cuid())
+  evidenceId  String
+  evidence    EvidenceItem @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  receivedBy  String   // Officer/user name
+  releasedBy  String?  // Previous custodian
+  locationFrom String?
+  locationTo  String
+  purpose     String?  // e.g., "Forensic analysis", "Court presentation"
+  notes       String?
+  transferredAt DateTime @default(now())
+
+  @@index([evidenceId])
+}
+
+// ============ CONSULTATION REQUESTS ============
+
+model ConsultationRequest {
+  id          String   @id @default(cuid())
+  firId       String
+  fir         FIR      @relation(fields: [firId], references: [id], onDelete: Cascade)
+  requestorId String   // User requesting access
+  requestor   User     @relation("SentRequests", fields: [requestorId], references: [id])
+  responderId String?  // User who owns the case (assigned investigator)
+  responder   User?    @relation("ReceivedRequests", fields: [responderId], references: [id])
+  reason      String
+  status      String   @default("Pending") // Pending, Approved, Rejected, Expired
+  grantedAt   DateTime?
+  expiresAt   DateTime?
+  respondedAt DateTime?
+  responseNote String?
+  createdAt   DateTime @default(now())
+
+  @@index([requestorId])
+  @@index([responderId])
+  @@index([status])
 }
 
 // ============ MODULE 2: STAFF & DUTY MANAGEMENT ============
@@ -57,6 +187,7 @@ model Officer {
   attendances   Attendance[]
   leaveRequests LeaveRequest[]
   dutyAssignments DutyAssignment[]
+  userAccount   User?
 }
 
 model Attendance {

@@ -1,9 +1,12 @@
 import { db } from '@/lib/db';
+import { requireAuth } from '@/lib/rbac';
 import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/equipment - Get all equipment with optional filtering
 export async function GET(request: NextRequest) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const { searchParams } = request.nextUrl;
     const category = searchParams.get('category');
     const condition = searchParams.get('condition');
@@ -87,6 +90,8 @@ export async function POST(request: NextRequest) {
 // PUT /api/equipment - Update equipment (accept { id, ...fields })
 export async function PUT(request: NextRequest) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const body = await request.json();
 
     const { id, ...fields } = body;
@@ -138,6 +143,8 @@ export async function PUT(request: NextRequest) {
 // DELETE /api/equipment - Delete equipment (accept { id })
 export async function DELETE(request: NextRequest) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const body = await request.json();
 
     const { id } = body;

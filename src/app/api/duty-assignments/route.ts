@@ -1,9 +1,12 @@
 import { db } from '@/lib/db';
+import { requireAuth } from '@/lib/rbac';
 import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/duty-assignments - Get all duty assignments with optional filtering
 export async function GET(request: NextRequest) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const { searchParams } = request.nextUrl;
     const officerId = searchParams.get('officerId');
     const dateParam = searchParams.get('date');
@@ -47,6 +50,8 @@ export async function GET(request: NextRequest) {
 // POST /api/duty-assignments - Create duty assignment
 export async function POST(request: NextRequest) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const body = await request.json();
 
     const { officerId, shiftType, postArea, assignedDate, startTime, endTime, createdBy } = body;

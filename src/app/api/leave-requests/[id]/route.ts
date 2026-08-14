@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { requireAuth } from '@/lib/rbac';
 import { NextRequest, NextResponse } from 'next/server';
 
 // PUT /api/leave-requests/[id] - Update leave request (approve/reject)
@@ -7,6 +8,8 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const { id } = await params;
     const body = await request.json();
 

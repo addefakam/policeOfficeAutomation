@@ -1,9 +1,12 @@
 import { db } from '@/lib/db';
+import { requireAuth } from '@/lib/rbac';
 import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/leave-requests - Get all leave requests with optional filtering
 export async function GET(request: NextRequest) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const { searchParams } = request.nextUrl;
     const officerId = searchParams.get('officerId');
     const status = searchParams.get('status');
@@ -36,6 +39,8 @@ export async function GET(request: NextRequest) {
 // POST /api/leave-requests - Create leave request
 export async function POST(request: NextRequest) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const body = await request.json();
 
     const { officerId, leaveType, startDate, endDate, days, reason } = body;

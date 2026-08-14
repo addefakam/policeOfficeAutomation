@@ -1,9 +1,12 @@
 import { db } from '@/lib/db';
+import { requireAuth } from '@/lib/rbac';
 import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/vehicles - Get all vehicles
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const vehicles = await db.vehicle.findMany({
       orderBy: { createdAt: 'desc' },
     });
@@ -21,6 +24,8 @@ export async function GET() {
 // POST /api/vehicles - Create a new vehicle
 export async function POST(request: NextRequest) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const body = await request.json();
 
     const {

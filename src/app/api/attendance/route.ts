@@ -1,9 +1,12 @@
 import { db } from '@/lib/db';
+import { requireAuth } from '@/lib/rbac';
 import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/attendance - Get all attendance records with optional filtering
 export async function GET(request: NextRequest) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const { searchParams } = request.nextUrl;
     const officerId = searchParams.get('officerId');
     const dateParam = searchParams.get('date');
@@ -43,6 +46,8 @@ export async function GET(request: NextRequest) {
 // POST /api/attendance - Create attendance record (check-in)
 export async function POST(request: NextRequest) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const body = await request.json();
 
     const { officerId, date, status: attendanceStatus, notes } = body;

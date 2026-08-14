@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { requireAuth } from '@/lib/rbac';
 import { NextRequest, NextResponse } from 'next/server';
 
 // GET /api/officers/[id] - Get single officer
@@ -7,6 +8,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const { id } = await params;
     const officer = await db.officer.findUnique({
       where: { id },
@@ -37,6 +40,8 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const { id } = await params;
     const body = await request.json();
 
@@ -80,6 +85,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { error } = await requireAuth(request);
+    if (error) return error;
     const { id } = await params;
     const officer = await db.officer.findUnique({ where: { id } });
     if (!officer) {
