@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}Audit Logs — PDMS{% endblock %}
+{% block nav_audit %}active text-white{% endblock %}
+{% block page_title %}Audit Logs{% endblock %}
+
+{% block content %}
+<div class="card content-card">
+    <div class="card-header">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <span><i class="bi bi-journal-text text-primary me-2"></i>Audit Trail</span>
+            <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+                <div>
+                    <label class="form-label small mb-1">Action</label>
+                    <select name="action" class="form-select form-select-sm" style="min-width:160px;">
+                        <option value="">All Actions</option>
+                        {% for val, label in action_choices %}
+                        <option value="{{ val }}" {% if request.GET.action == val %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label small mb-1">From</label>
+                    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ request.GET.date_from }}" style="width:150px;">
+                </div>
+                <div>
+                    <label class="form-label small mb-1">To</label>
+                    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ request.GET.date_to }}" style="width:150px;">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-funnel me-1"></i> Filter
+                </button>
+                <a href="{% url 'core:audit_logs' %}" class="btn btn-outline-secondary btn-sm">Clear</a>
+            </form>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="sticky-top">
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Model</th>
+                        <th>Details</th>
+                        <th>IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td class="text-nowrap"><small>{{ log.timestamp|date:"Y-m-d H:i" }}</small></td>
+                        <td><strong>{{ log.username }}</strong></td>
+                        <td>
+                            <span class="badge
+                                {% if log.action == 'LOGIN' or log.action == 'LOGOUT' %}bg-info-subtle text-info
+                                {% elif log.action == 'LOGIN_FAILED' %}bg-danger-subtle text-danger
+                                {% elif 'DELETE' in log.action %}bg-danger-subtle text-danger
+                                {% elif 'CREATE' in log.action or 'ADD' in log.action %}bg-success-subtle text-success
+                                {% elif 'UPDATE' in log.action or 'APPROVE' in log.action %}bg-primary-subtle text-primary
+                                {% elif 'REJECT' in log.action or 'REMOVE' in log.action %}bg-warning-subtle text-warning
+                                {% else %}bg-secondary-subtle text-secondary{% endif %}">{{ log.get_action_display }}</span>
+                        </td>
+                        <td><small class="text-muted">{{ log.model_type|default:"—" }}</small></td>
+                        <td><small>{{ log.details|default:"" }}</small></td>
+                        <td><small class="text-muted">{{ log.ip_address|default:"—" }}</small></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center text-muted py-4">No audit logs found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}Equipment — PDMS{% endblock %}
+{% block nav_equipment %}active text-white{% endblock %}
+{% block page_title %}Equipment Inventory{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h5 class="fw-bold mb-0"><i class="bi bi-tools me-2"></i>Equipment Inventory</h5>
+    <div class="d-flex gap-2 align-items-center">
+        <select class="form-select form-select-sm" onchange="window.location.href='?category='+this.value" style="min-width:160px;">
+            <option value="">All Categories</option>
+            <option value="WEAPON" {% if request.GET.category == 'WEAPON' %}selected{% endif %}>Weapons</option>
+            <option value="COMMUNICATION" {% if request.GET.category == 'COMMUNICATION' %}selected{% endif %}>Communication</option>
+            <option value="PROTECTIVE" {% if request.GET.category == 'PROTECTIVE' %}selected{% endif %}>Protective Gear</option>
+            <option value="FORENSIC" {% if request.GET.category == 'FORENSIC' %}selected{% endif %}>Forensic Kits</option>
+            <option value="SURVEILLANCE" {% if request.GET.category == 'SURVEILLANCE' %}selected{% endif %}>Surveillance</option>
+            <option value="OTHER" {% if request.GET.category == 'OTHER' %}selected{% endif %}>Other</option>
+        </select>
+        {% if user|has_role:'CLERK' %}
+        <a href="{% url 'fleet:equipment_create' %}" class="btn btn-primary btn-sm">
+            <i class="bi bi-plus-lg me-1"></i> Add Equipment
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card content-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Serial #</th>
+                        <th>Item Name</th>
+                        <th>Category</th>
+                        <th>Assigned To</th>
+                        <th>Purchase Date</th>
+                        <th>Cost</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for eq in equipment %}
+                    <tr>
+                        <td><code>{{ eq.serial_number }}</code></td>
+                        <td class="fw-semibold">{{ eq.item_name }}</td>
+                        <td>
+                            <span class="badge bg-dark-subtle text-dark">
+                                <i class="bi {% if eq.category == 'WEAPON' %}bi-crosshair
+                                {% elif eq.category == 'COMMUNICATION' %}bi-broadcast
+                                {% elif eq.category == 'PROTECTIVE' %}bi-shield-check
+                                {% elif eq.category == 'FORENSIC' %}bi-search
+                                {% elif eq.category == 'SURVEILLANCE' %}bi-camera
+                                {% else %}bi-box{% endif %} me-1"></i>
+                                {{ eq.get_category_display }}
+                            </span>
+                        </td>
+                        <td>{{ eq.assigned_to|default:"<span class='text-muted'>Unassigned</span>" }}</td>
+                        <td>{{ eq.purchase_date|date:"M d, Y"|default:"—" }}</td>
+                        <td>{{ eq.purchase_cost|default:"—" }}</td>
+                        <td>
+                            <span class="badge
+                                {% if eq.status == 'AVAILABLE' %}bg-success
+                                {% elif eq.status == 'ASSIGNED' %}bg-primary
+                                {% elif eq.status == 'MAINTENANCE' %}bg-warning text-dark
+                                {% else %}bg-danger{% endif %}">{{ eq.get_status_display }}</span>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-4">
+                            <div class="empty-state">
+                                <i class="bi bi-tools d-block"></i>
+                                <p>No equipment items found.</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

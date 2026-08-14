@@ -1,0 +1,187 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}{{ vehicle.plate_number }} — PDMS{% endblock %}
+{% block nav_vehicles %}active text-white{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'fleet:vehicle_list' %}">Vehicles</a></li>
+<li class="breadcrumb-item active">{{ vehicle.plate_number }}</li>
+{% endblock %}
+{% block page_title %}{{ vehicle.plate_number }}{% endblock %}
+
+{% block content %}
+<!-- Vehicle Info Header -->
+<div class="card content-card mb-3">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-start gap-2">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <h5 class="fw-bold mb-0">{{ vehicle.plate_number }}</h5>
+                <span class="badge
+                    {% if vehicle.status == 'AVAILABLE' %}bg-success
+                    {% elif vehicle.status == 'ASSIGNED' %}bg-primary
+                    {% elif vehicle.status == 'MAINTENANCE' %}bg-warning text-dark
+                    {% else %}bg-danger{% endif %}">{{ vehicle.get_status_display }}</span>
+            </div>
+            <span class="badge bg-dark-subtle text-dark">{{ vehicle.get_vehicle_type_display }}</span>
+            <span class="text-muted small ms-2">{{ vehicle.make }} {{ vehicle.model }} {% if vehicle.year %}({{ vehicle.year }}){% endif %}</span>
+        </div>
+        <div class="d-flex gap-2 no-print">
+            {% if user|has_role:'CLERK' %}
+            <a href="{% url 'fleet:vehicle_assign' vehicle.id %}" class="btn btn-primary btn-sm">
+                <i class="bi bi-person-plus me-1"></i> Assign
+            </a>
+            <a href="{% url 'fleet:fuel_log' vehicle.id %}" class="btn btn-outline-success btn-sm">
+                <i class="bi bi-fuel-pump me-1"></i> Fuel Log
+            </a>
+            <a href="{% url 'fleet:maintenance_create' vehicle.id %}" class="btn btn-outline-warning btn-sm">
+                <i class="bi bi-wrench me-1"></i> Maintenance
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-sm-6 col-md-3">
+                <div class="p-3 bg-primary bg-opacity-5 rounded-3 text-center">
+                    <i class="bi bi-speedometer fs-4 text-primary"></i>
+                    <div class="fw-bold mt-1">{{ vehicle.mileage|default:"0" }} km</div>
+                    <small class="text-muted">Mileage</small>
+                </div>
+            </div>
+            <div class="col-sm-6 col-md-3">
+                <div class="p-3 bg-success bg-opacity-5 rounded-3 text-center">
+                    <i class="bi bi-fuel-pump fs-4 text-success"></i>
+                    <div class="fw-bold mt-1">{{ vehicle.fuel_capacity|default:"—" }} L</div>
+                    <small class="text-muted">Fuel Capacity</small>
+                </div>
+            </div>
+            <div class="col-sm-6 col-md-3">
+                <div class="p-3 bg-info bg-opacity-5 rounded-3 text-center">
+                    <i class="bi bi-person-check fs-4 text-info"></i>
+                    <div class="fw-bold mt-1">{{ assignments|length }}</div>
+                    <small class="text-muted">Total Assignments</small>
+                </div>
+            </div>
+            <div class="col-sm-6 col-md-3">
+                <div class="p-3 bg-warning bg-opacity-5 rounded-3 text-center">
+                    <i class="bi bi-wrench fs-4 text-warning"></i>
+                    <div class="fw-bold mt-1">{{ maintenance|length }}</div>
+                    <small class="text-muted">Maintenance Records</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tabs -->
+<ul class="nav nav-tabs mb-3" id="vehicleTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#assignments" type="button">
+            <i class="bi bi-person-check me-1"></i> Assignments
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#fuellogs" type="button">
+            <i class="bi bi-fuel-pump me-1"></i> Fuel Logs
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#maintrecords" type="button">
+            <i class="bi bi-wrench me-1"></i> Maintenance
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- Assignments -->
+    <div class="tab-pane fade show active" id="assignments" role="tabpanel">
+        <div class="card content-card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr><th>Officer</th><th>Assigned Date</th><th>Returned</th><th>Purpose</th><th>Assigned By</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for a in assignments %}
+                            <tr>
+                                <td class="fw-semibold">{{ a.officer.full_name }}</td>
+                                <td>{{ a.assigned_date|date:"M d, Y" }}</td>
+                                <td>{{ a.returned_date|date:"M d, Y"|default:"<span class='text-success'>Active</span>" }}</td>
+                                <td class="small">{{ a.purpose|truncatewords:8|default:"—" }}</td>
+                                <td class="small text-muted">{{ a.assigned_by|default:"—" }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="5" class="text-center text-muted py-3">No assignment records.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fuel Logs -->
+    <div class="tab-pane fade" id="fuellogs" role="tabpanel">
+        <div class="card content-card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr><th>Date</th><th>Liters</th><th>Cost</th><th>Odometer</th><th>Station</th><th>Filled By</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for f in fuel_logs %}
+                            <tr>
+                                <td>{{ f.date|date:"M d, Y" }}</td>
+                                <td class="fw-semibold">{{ f.liters }} L</td>
+                                <td>{{ f.cost|default:"—" }}</td>
+                                <td>{{ f.odometer|default:"—" }} km</td>
+                                <td>{{ f.station|default:"—" }}</td>
+                                <td class="small text-muted">{{ f.filled_by|default:"—" }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="6" class="text-center text-muted py-3">No fuel logs.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Maintenance -->
+    <div class="tab-pane fade" id="maintrecords" role="tabpanel">
+        <div class="card content-card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr><th>Date</th><th>Type</th><th>Description</th><th>Status</th><th>Cost</th><th>Performed By</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for m in maintenance %}
+                            <tr>
+                                <td>{{ m.service_date|date:"M d, Y" }}</td>
+                                <td><span class="badge bg-dark-subtle text-dark">{{ m.get_maintenance_type_display }}</span></td>
+                                <td>{{ m.description|truncatewords:10 }}</td>
+                                <td>
+                                    <span class="badge
+                                        {% if m.status == 'PENDING' %}bg-warning text-dark
+                                        {% elif m.status == 'IN_PROGRESS' %}bg-info
+                                        {% else %}bg-success{% endif %}">{{ m.get_status_display }}</span>
+                                </td>
+                                <td>{{ m.cost|default:"—" }}</td>
+                                <td class="small text-muted">{{ m.performed_by|default:"—" }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="6" class="text-center text-muted py-3">No maintenance records.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

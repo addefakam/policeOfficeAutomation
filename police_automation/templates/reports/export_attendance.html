@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}{{ title }} — PDMS{% endblock %}
+{% block nav_reports %}active text-white{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 no-print">
+    <h5 class="fw-bold mb-0"><i class="bi bi-calendar-check me-2"></i>{{ title }}</h5>
+    <div class="d-flex gap-2">
+        <button onclick="window.print()" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-printer me-1"></i> Print
+        </button>
+        <a href="{% url 'reports:dashboard_report' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i> Back
+        </a>
+    </div>
+</div>
+
+<div class="card content-card">
+    <div class="card-header text-center">
+        <h5 class="fw-bold mb-0">POLICE DEPARTMENT</h5>
+        <small class="text-muted">{{ title }} — Generated: {% now "F j, Y H:i" %}</small>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Officer</th>
+                        <th>Badge #</th>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>Check In</th>
+                        <th>Check Out</th>
+                        <th>Remarks</th>
+                        <th>Marked By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rec in records %}
+                    <tr>
+                        <td>{{ rec.officer.full_name }}</td>
+                        <td>{{ rec.officer.badge_number }}</td>
+                        <td>{{ rec.date|date:"M d, Y" }}</td>
+                        <td>
+                            <span class="badge
+                                {% if rec.status == 'PRESENT' %}bg-success
+                                {% elif rec.status == 'ABSENT' %}bg-danger
+                                {% elif rec.status == 'LEAVE' %}bg-warning text-dark
+                                {% else %}bg-info{% endif %}">{{ rec.get_status_display }}</span>
+                        </td>
+                        <td>{{ rec.check_in|time:"H:i"|default:"—" }}</td>
+                        <td>{{ rec.check_out|time:"H:i"|default:"—" }}</td>
+                        <td>{{ rec.remarks|default:"—" }}</td>
+                        <td class="small text-muted">{{ rec.marked_by|default:"—" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="8" class="text-center py-3">No records.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer text-muted small">
+        Total Records: {{ records|length }}
+    </div>
+</div>
+{% endblock %}

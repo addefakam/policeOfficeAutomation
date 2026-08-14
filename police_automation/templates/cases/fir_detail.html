@@ -1,0 +1,318 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}{{ fir.fir_number }} — PDMS{% endblock %}
+{% block nav_cases %}active text-white{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'cases:fir_list' %}">FIR Management</a></li>
+<li class="breadcrumb-item active">{{ fir.fir_number }}</li>
+{% endblock %}
+{% block page_title %}{{ fir.fir_number }}{% endblock %}
+
+{% block content %}
+<!-- FIR Header -->
+<div class="card content-card mb-3">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-start gap-2">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <h5 class="fw-bold mb-0">{{ fir.fir_number }}</h5>
+                <span class="badge
+                    {% if fir.priority == 'URGENT' %}bg-danger
+                    {% elif fir.priority == 'HIGH' %}bg-warning text-dark
+                    {% elif fir.priority == 'MEDIUM' %}bg-info text-dark
+                    {% else %}bg-secondary{% endif %}">{{ fir.get_priority_display }} Priority</span>
+                <span class="badge
+                    {% if fir.status == 'OPEN' %}bg-primary
+                    {% elif fir.status == 'UNDER_INVESTIGATION' %}bg-warning text-dark
+                    {% elif fir.status == 'CLOSED' %}bg-success
+                    {% else %}bg-info{% endif %}">{{ fir.get_status_display }}</span>
+            </div>
+            <span class="badge bg-dark-subtle text-dark">{{ fir.get_crime_type_display }}</span>
+            <span class="text-muted small ms-2">Filed: {{ fir.reporting_date|date:"M d, Y H:i" }}</span>
+        </div>
+        <div class="d-flex gap-1 no-print">
+            {% if user|has_role:'STATION_COMMANDER' %}
+            <a href="{% url 'cases:fir_update' fir.id %}" class="btn btn-outline-primary btn-sm" title="Update Status">
+                <i class="bi bi-pencil me-1"></i> Update
+            </a>
+            {% endif %}
+            {% if user|has_role:'ADMIN' %}
+            <a href="{% url 'cases:fir_delete' fir.id %}" class="btn btn-outline-danger btn-sm" title="Delete" onclick="return confirm('Are you sure?')">
+                <i class="bi bi-trash me-1"></i> Delete
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <h6 class="text-muted small fw-semibold text-uppercase mb-2">Complainant Details</h6>
+                <table class="table table-sm table-borderless mb-0">
+                    <tr><td class="text-muted" style="width:120px;">Name</td><td class="fw-semibold">{{ fir.complainant_name }}</td></tr>
+                    <tr><td class="text-muted">Phone</td><td>{{ fir.complainant_phone|default:"—" }}</td></tr>
+                    <tr><td class="text-muted">Address</td><td>{{ fir.complainant_address|default:"—" }}</td></tr>
+                </table>
+            </div>
+            <div class="col-md-6">
+                <h6 class="text-muted small fw-semibold text-uppercase mb-2">Incident Details</h6>
+                <table class="table table-sm table-borderless mb-0">
+                    <tr><td class="text-muted" style="width:120px;">Date</td><td class="fw-semibold">{{ fir.incident_date|date:"M d, Y" }}</td></tr>
+                    <tr><td class="text-muted">Location</td><td>{{ fir.incident_location }}</td></tr>
+                    <tr><td class="text-muted">Assigned To</td><td>{{ fir.assigned_to|default:"<span class='text-muted'>Unassigned</span>" }}</td></tr>
+                </table>
+            </div>
+            <div class="col-12">
+                <h6 class="text-muted small fw-semibold text-uppercase mb-2">Crime Description</h6>
+                <p class="bg-light p-3 rounded-2 mb-0 small">{{ fir.crime_description }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tabs: Team | Evidence | Notes | Consultations -->
+<ul class="nav nav-tabs mb-3" id="firTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="team-tab" data-bs-toggle="tab" data-bs-target="#team" type="button" role="tab">
+            <i class="bi bi-people me-1"></i> Team <span class="badge bg-secondary">{{ team|length }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="evidence-tab" data-bs-toggle="tab" data-bs-target="#evidence" type="button" role="tab">
+            <i class="bi bi-box-seam me-1"></i> Evidence <span class="badge bg-secondary">{{ evidence|length }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="notes-tab" data-bs-toggle="tab" data-bs-target="#notes" type="button" role="tab">
+            <i class="bi bi-journal-text me-1"></i> Notes <span class="badge bg-secondary">{{ notes|length }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="consultations-tab" data-bs-toggle="tab" data-bs-target="#consultations" type="button" role="tab">
+            <i class="bi bi-chat-dots me-1"></i> Consultations
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- Team Tab -->
+    <div class="tab-pane fade show active" id="team" role="tabpanel">
+        <div class="card content-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Case Team</span>
+                {% if user|has_role:'INVESTIGATOR' %}
+                <button class="btn btn-primary btn-sm" data-bs-toggle="collapse" data-bs-target="#addTeamCollapse">
+                    <i class="bi bi-person-plus me-1"></i> Add Member
+                </button>
+                {% endif %}
+            </div>
+            <div class="card-body p-0">
+                <div class="collapse" id="addTeamCollapse">
+                    <div class="p-3 border-bottom">
+                        <form method="post" action="{% url 'cases:add_team_member' fir.id %}">
+                            {% csrf_token %}
+                            <div class="row g-2 align-items-end">
+                                <div class="col-md-5"><select name="officer" class="form-select form-select-sm" required><option value="">Select officer...</option>{% for o in all_officers %}<option value="{{ o.id }}">{{ o.full_name }} ({{ o.badge_number }})</option>{% endfor %}</select></div>
+                                <div class="col-md-4"><input type="text" name="role" class="form-control form-control-sm" value="Investigator" placeholder="Role"></div>
+                                <div class="col-md-3">
+                                    <button type="submit" class="btn btn-success btn-sm w-100"><i class="bi bi-plus"></i> Add</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr><th>Officer</th><th>Role</th><th>Added</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for member in team %}
+                            <tr>
+                                <td class="fw-semibold">{{ member.officer.full_name }} <small class="text-muted">({{ member.officer.badge_number }})</small></td>
+                                <td><span class="badge bg-primary-subtle text-primary">{{ member.role }}</span></td>
+                                <td class="small text-muted">{{ member.added_at|date:"M d, Y" }}</td>
+                                <td>
+                                    {% if member.role != 'Lead Investigator' or user|has_role:'STATION_COMMANDER' %}
+                                    <a href="{% url 'cases:remove_team_member' fir.id member.id %}" class="btn btn-outline-danger btn-sm" onclick="return confirm('Remove this member?')">
+                                        <i class="bi bi-person-x"></i>
+                                    </a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="4" class="text-center text-muted py-3">No team members yet.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Evidence Tab -->
+    <div class="tab-pane fade" id="evidence" role="tabpanel">
+        <div class="card content-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Evidence Items</span>
+                {% if user|has_role:'INVESTIGATOR' %}
+                <button class="btn btn-primary btn-sm" data-bs-toggle="collapse" data-bs-target="#addEvidenceCollapse">
+                    <i class="bi bi-plus-circle me-1"></i> Add Evidence
+                </button>
+                {% endif %}
+            </div>
+            <div class="card-body p-0">
+                <div class="collapse" id="addEvidenceCollapse">
+                    <div class="p-3 border-bottom">
+                        <form method="post" action="{% url 'cases:add_evidence' fir.id %}">
+                            {% csrf_token %}
+                            <div class="row g-2">
+                                <div class="col-md-12">
+                                    <textarea name="description" class="form-control form-control-sm" rows="2" placeholder="Description *" required></textarea>
+                                </div>
+                                <div class="col-md-4">
+                                    <input type="text" name="item_type" class="form-control form-control-sm" placeholder="Item Type">
+                                </div>
+                                <div class="col-md-5">
+                                    <input type="text" name="storage_location" class="form-control form-control-sm" placeholder="Storage Location">
+                                </div>
+                                <div class="col-md-3">
+                                    <button type="submit" class="btn btn-success btn-sm w-100"><i class="bi bi-plus"></i> Add</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr><th>Item #</th><th>Description</th><th>Type</th><th>Location</th><th>Status</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for ev in evidence %}
+                            <tr>
+                                <td><strong>{{ ev.item_number }}</strong></td>
+                                <td>{{ ev.description|truncatewords:15 }}</td>
+                                <td>{{ ev.item_type|default:"—" }}</td>
+                                <td>{{ ev.storage_location|default:"—" }}</td>
+                                <td>
+                                    <span class="badge
+                                        {% if ev.status == 'IN_CUSTODY' %}bg-success
+                                        {% elif ev.status == 'TRANSFERRED' %}bg-info
+                                        {% elif ev.status == 'RELEASED' %}bg-primary
+                                        {% else %}bg-secondary{% endif %}">{{ ev.get_status_display }}</span>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="5" class="text-center text-muted py-3">No evidence items recorded.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notes Tab -->
+    <div class="tab-pane fade" id="notes" role="tabpanel">
+        <div class="card content-card">
+            <div class="card-header">Investigation Notes</div>
+            <div class="card-body">
+                {% if user|has_role:'INVESTIGATOR' %}
+                <form method="post" action="{% url 'cases:add_note' fir.id %}" class="mb-4">
+                    {% csrf_token %}
+                    <div class="row g-2">
+                        <div class="col-md-3">
+                            <select name="note_type" class="form-select form-select-sm">
+                                <option value="PROGRESS">Progress Update</option>
+                                <option value="OBSERVATION">Observation</option>
+                                <option value="INTERVIEW">Interview Note</option>
+                                <option value="EVIDENCE_NOTE">Evidence Note</option>
+                                <option value="OTHER">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-md-7">
+                            <textarea name="content" class="form-control form-control-sm" rows="1" placeholder="Add a note..." required></textarea>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-primary btn-sm w-100"><i class="bi bi-send me-1"></i>Add</button>
+                        </div>
+                    </div>
+                </form>
+                {% endif %}
+
+                <div class="timeline">
+                    {% for note in notes %}
+                    <div class="timeline-item">
+                        <div class="d-flex justify-content-between align-items-start mb-1">
+                            <strong class="small">{{ note.officer_name }}</strong>
+                            <small class="text-muted">{{ note.created_at|date:"M d, Y H:i" }}</small>
+                        </div>
+                        <span class="badge bg-secondary-subtle text-secondary mb-1">{{ note.note_type }}</span>
+                        <p class="bg-light p-2 rounded-2 mb-0 small">{{ note.content }}</p>
+                    </div>
+                    {% empty %}
+                    <div class="empty-state">
+                        <i class="bi bi-journal-x d-block"></i>
+                        <p>No investigation notes yet.</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Consultations Tab -->
+    <div class="tab-pane fade" id="consultations" role="tabpanel">
+        <div class="card content-card">
+            <div class="card-header">Case Consultations</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr><th>From</th><th>To</th><th>Reason</th><th>Status</th><th>Date</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for c in consultations %}
+                            <tr>
+                                <td>{{ c.requestor }}</td>
+                                <td>{{ c.responder }}</td>
+                                <td>{{ c.reason|truncatewords:10 }}</td>
+                                <td>
+                                    <span class="badge
+                                        {% if c.status == 'PENDING' %}bg-warning text-dark
+                                        {% elif c.status == 'APPROVED' %}bg-success
+                                        {% else %}bg-danger{% endif %}">{{ c.get_status_display }}</span>
+                                </td>
+                                <td class="small text-muted">{{ c.created_at|date:"M d, Y H:i" }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="5" class="text-center text-muted py-3">No consultations requested.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Activate correct tab from URL hash
+    const hash = window.location.hash;
+    if (hash) {
+        const tab = document.querySelector(`[data-bs-target="${hash}"]`);
+        if (tab) {
+            const bsTab = new bootstrap.Tab(tab);
+            bsTab.show();
+        }
+    }
+    // Update hash on tab change
+    document.querySelectorAll('#firTabs button').forEach(btn => {
+        btn.addEventListener('shown.bs.tab', () => {
+            window.location.hash = btn.getAttribute('data-bs-target');
+        });
+    });
+</script>
+{% endblock %}

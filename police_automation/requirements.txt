@@ -1,0 +1,5 @@
+Django>=5.0
+psycopg2-binary>=2.9
+dj-database-url>=2.0
+bcrypt>=4.0
+Pillow>=10.0

@@ -1,0 +1,244 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}Reports Dashboard — PDMS{% endblock %}
+{% block nav_reports %}active text-white{% endblock %}
+{% block page_title %}Reports & Analytics{% endblock %}
+
+{% block content %}
+{% if user|has_role:'STATION_COMMANDER' %}
+<div class="d-flex flex-wrap gap-2 mb-3 no-print">
+    <a href="{% url 'reports:export' 'firs' %}" class="btn btn-outline-primary btn-sm">
+        <i class="bi bi-download me-1"></i> Export FIRs
+    </a>
+    <a href="{% url 'reports:export' 'attendance' %}" class="btn btn-outline-success btn-sm">
+        <i class="bi bi-download me-1"></i> Export Attendance
+    </a>
+</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+    <!-- Crime Type Chart -->
+    <div class="col-lg-6">
+        <div class="card content-card h-100">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-pie-chart text-primary"></i> Crime Type Distribution
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="crimeTypeChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Chart -->
+    <div class="col-lg-6">
+        <div class="card content-card h-100">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-bar-chart text-success"></i> Case Status
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="statusChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <!-- Monthly Trend -->
+    <div class="col-lg-8">
+        <div class="card content-card h-100">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-graph-up text-info"></i> Monthly FIR Trend (Last 6 Months)
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Priority Chart -->
+    <div class="col-lg-4">
+        <div class="card content-card h-100">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-exclamation-triangle text-warning"></i> Priority Breakdown
+            </div>
+            <div class="card-body">
+                <div class="chart-container-sm">
+                    <canvas id="priorityChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <!-- Attendance Summary -->
+    <div class="col-lg-4">
+        <div class="card content-card h-100">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-calendar-check text-success"></i> Attendance (30 Days)
+            </div>
+            <div class="card-body">
+                <div class="chart-container-sm">
+                    <canvas id="attendanceChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fleet Summary -->
+    <div class="col-lg-4">
+        <div class="card content-card h-100">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-truck text-info"></i> Fleet Status
+            </div>
+            <div class="card-body">
+                <div class="chart-container-sm">
+                    <canvas id="fleetChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Equipment by Category -->
+    <div class="col-lg-4">
+        <div class="card content-card h-100">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-tools text-warning"></i> Equipment by Category
+            </div>
+            <div class="card-body">
+                <div class="chart-container-sm">
+                    <canvas id="equipmentChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const chartColors = [
+    'rgba(26, 86, 219, 0.8)',
+    'rgba(220, 38, 38, 0.8)',
+    'rgba(22, 163, 74, 0.8)',
+    'rgba(217, 119, 6, 0.8)',
+    'rgba(124, 58, 237, 0.8)',
+    'rgba(14, 116, 144, 0.8)',
+    'rgba(234, 88, 12, 0.8)',
+    'rgba(107, 114, 128, 0.8)',
+    'rgba(190, 18, 60, 0.8)',
+    'rgba(22, 163, 74, 0.8)',
+    'rgba(37, 99, 235, 0.8)',
+    'rgba(100, 116, 139, 0.8)',
+];
+const chartBg = chartColors.map(c => c.replace('0.8', '0.15'));
+
+// Crime Type Chart
+new Chart(document.getElementById('crimeTypeChart'), {
+    type: 'doughnut',
+    data: {
+        labels: [{% for item in crime_dist %}'{{ item.crime_type }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
+        datasets: [{
+            data: [{% for item in crime_dist %}{{ item.count }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+            backgroundColor: chartColors.slice(0, {{ crime_dist|length }}),
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 14, padding: 12, font: { size: 12 } } } } }
+});
+
+// Status Chart
+new Chart(document.getElementById('statusChart'), {
+    type: 'bar',
+    data: {
+        labels: [{% for item in status_dist %}'{{ item.status }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
+        datasets: [{
+            label: 'Cases',
+            data: [{% for item in status_dist %}{{ item.count }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+            backgroundColor: ['rgba(26,86,219,0.7)', 'rgba(217,119,6,0.7)', 'rgba(22,163,74,0.7)', 'rgba(14,116,144,0.7)'],
+            borderRadius: 6,
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+});
+
+// Monthly Trend
+new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+        labels: [{% for item in monthly_trend %}'{{ item.month|date:"M Y" }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
+        datasets: [{
+            label: 'FIRs Filed',
+            data: [{% for item in monthly_trend %}{{ item.count }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+            borderColor: 'rgba(26, 86, 219, 1)',
+            backgroundColor: 'rgba(26, 86, 219, 0.1)',
+            fill: true,
+            tension: 0.4,
+            pointBackgroundColor: 'rgba(26, 86, 219, 1)',
+            pointRadius: 5,
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+});
+
+// Priority Chart
+new Chart(document.getElementById('priorityChart'), {
+    type: 'polarArea',
+    data: {
+        labels: [{% for item in priority_dist %}'{{ item.priority }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
+        datasets: [{
+            data: [{% for item in priority_dist %}{{ item.count }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+            backgroundColor: ['rgba(22,163,74,0.6)', 'rgba(37,99,235,0.6)', 'rgba(217,119,6,0.6)', 'rgba(220,38,38,0.6)'],
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 10, font: { size: 11 } } } } }
+});
+
+// Attendance Chart
+new Chart(document.getElementById('attendanceChart'), {
+    type: 'doughnut',
+    data: {
+        labels: ['Present', 'Absent', 'On Leave'],
+        datasets: [{
+            data: [{{ attendance_summary.present }}, {{ attendance_summary.absent }}, {{ attendance_summary.leave }}],
+            backgroundColor: ['rgba(22,163,74,0.8)', 'rgba(220,38,38,0.8)', 'rgba(217,119,6,0.8)'],
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }
+});
+
+// Fleet Chart
+new Chart(document.getElementById('fleetChart'), {
+    type: 'doughnut',
+    data: {
+        labels: ['Available', 'Assigned', 'Maintenance'],
+        datasets: [{
+            data: [{{ fleet_summary.available }}, {{ fleet_summary.assigned }}, {{ fleet_summary.maintenance }}],
+            backgroundColor: ['rgba(22,163,74,0.8)', 'rgba(26,86,219,0.8)', 'rgba(217,119,6,0.8)'],
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }
+});
+
+// Equipment Chart
+new Chart(document.getElementById('equipmentChart'), {
+    type: 'bar',
+    data: {
+        labels: [{% for item in equip_by_cat %}'{{ item.category }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
+        datasets: [{
+            label: 'Items',
+            data: [{% for item in equip_by_cat %}{{ item.count }}{% if not forloop.last %}, {% endif %}{% endfor %}],
+            backgroundColor: chartColors.slice(0, {{ equip_by_cat|length }}),
+            borderRadius: 6,
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+});
+</script>
+{% endblock %}

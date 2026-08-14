@@ -1,0 +1,141 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}FIR Management — PDMS{% endblock %}
+{% block nav_cases %}active text-white{% endblock %}
+{% block page_title %}FIR Management{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h5 class="fw-bold mb-0"><i class="bi bi-file-earmark-text me-2"></i>First Information Reports</h5>
+    <a href="{% url 'cases:fir_create' %}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i> Register New FIR
+    </a>
+</div>
+
+<!-- Filters -->
+<div class="card content-card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+            <div class="flex-grow-1" style="min-width:180px;">
+                <label class="form-label small mb-1">Search</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" name="q" value="{{ request.GET.q }}" class="form-control" placeholder="FIR # or complainant...">
+                </div>
+            </div>
+            <div>
+                <label class="form-label small mb-1">Status</label>
+                <select name="status" class="form-select form-select-sm" style="min-width:140px;">
+                    <option value="">All Statuses</option>
+                    <option value="OPEN" {% if request.GET.status == 'OPEN' %}selected{% endif %}>Open</option>
+                    <option value="UNDER_INVESTIGATION" {% if request.GET.status == 'UNDER_INVESTIGATION' %}selected{% endif %}>Under Investigation</option>
+                    <option value="CLOSED" {% if request.GET.status == 'CLOSED' %}selected{% endif %}>Closed</option>
+                    <option value="TRANSFERRED" {% if request.GET.status == 'TRANSFERRED' %}selected{% endif %}>Transferred</option>
+                </select>
+            </div>
+            <div>
+                <label class="form-label small mb-1">Crime Type</label>
+                <select name="crime_type" class="form-select form-select-sm" style="min-width:140px;">
+                    <option value="">All Types</option>
+                    <option value="THEFT" {% if request.GET.crime_type == 'THEFT' %}selected{% endif %}>Theft</option>
+                    <option value="ASSAULT" {% if request.GET.crime_type == 'ASSAULT' %}selected{% endif %}>Assault</option>
+                    <option value="BURGLARY" {% if request.GET.crime_type == 'BURGLARY' %}selected{% endif %}>Burglary</option>
+                    <option value="FRAUD" {% if request.GET.crime_type == 'FRAUD' %}selected{% endif %}>Fraud</option>
+                    <option value="VANDALISM" {% if request.GET.crime_type == 'VANDALISM' %}selected{% endif %}>Vandalism</option>
+                    <option value="TRAFFIC" {% if request.GET.crime_type == 'TRAFFIC' %}selected{% endif %}>Traffic</option>
+                    <option value="CYBERCRIME" {% if request.GET.crime_type == 'CYBERCRIME' %}selected{% endif %}>Cybercrime</option>
+                    <option value="DRUG" {% if request.GET.crime_type == 'DRUG' %}selected{% endif %}>Drug</option>
+                    <option value="DOMESTIC" {% if request.GET.crime_type == 'DOMESTIC' %}selected{% endif %}>Domestic</option>
+                    <option value="HOMICIDE" {% if request.GET.crime_type == 'HOMICIDE' %}selected{% endif %}>Homicide</option>
+                    <option value="ROBBERY" {% if request.GET.crime_type == 'ROBBERY' %}selected{% endif %}>Robbery</option>
+                    <option value="OTHER" {% if request.GET.crime_type == 'OTHER' %}selected{% endif %}>Other</option>
+                </select>
+            </div>
+            <div>
+                <label class="form-label small mb-1">Priority</label>
+                <select name="priority" class="form-select form-select-sm" style="min-width:120px;">
+                    <option value="">All</option>
+                    <option value="LOW" {% if request.GET.priority == 'LOW' %}selected{% endif %}>Low</option>
+                    <option value="MEDIUM" {% if request.GET.priority == 'MEDIUM' %}selected{% endif %}>Medium</option>
+                    <option value="HIGH" {% if request.GET.priority == 'HIGH' %}selected{% endif %}>High</option>
+                    <option value="URGENT" {% if request.GET.priority == 'URGENT' %}selected{% endif %}>Urgent</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel me-1"></i>Filter</button>
+            <a href="{% url 'cases:fir_list' %}" class="btn btn-outline-secondary btn-sm">Clear</a>
+        </form>
+    </div>
+</div>
+
+<!-- FIR Table -->
+<div class="card content-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>FIR #</th>
+                        <th>Complainant</th>
+                        <th>Crime Type</th>
+                        <th>Incident Date</th>
+                        <th>Priority</th>
+                        <th>Status</th>
+                        <th>Assigned To</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for fir in firs %}
+                    <tr>
+                        <td><strong><a href="{% url 'cases:fir_detail' fir.id %}" class="text-decoration-none">{{ fir.fir_number }}</a></strong></td>
+                        <td>{{ fir.complainant_name }}</td>
+                        <td><span class="badge bg-dark-subtle text-dark">{{ fir.get_crime_type_display }}</span></td>
+                        <td>{{ fir.incident_date|date:"M d, Y" }}</td>
+                        <td>
+                            <span class="badge
+                                {% if fir.priority == 'URGENT' %}bg-danger
+                                {% elif fir.priority == 'HIGH' %}bg-warning text-dark
+                                {% elif fir.priority == 'MEDIUM' %}bg-info text-dark
+                                {% else %}bg-secondary{% endif %}"> {{ fir.get_priority_display }}</span>
+                        </td>
+                        <td>
+                            <span class="badge
+                                {% if fir.status == 'OPEN' %}bg-primary
+                                {% elif fir.status == 'UNDER_INVESTIGATION' %}bg-warning text-dark
+                                {% elif fir.status == 'CLOSED' %}bg-success
+                                {% else %}bg-info{% endif %}"> {{ fir.get_status_display }}</span>
+                        </td>
+                        <td>{{ fir.assigned_to|default:"<span class='text-muted'>Unassigned</span>" }}</td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{% url 'cases:fir_detail' fir.id %}" class="btn btn-outline-primary" title="View">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                {% if user|has_role:'STATION_COMMANDER' %}
+                                <a href="{% url 'cases:fir_update' fir.id %}" class="btn btn-outline-secondary" title="Update">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8">
+                            <div class="empty-state">
+                                <i class="bi bi-inbox d-block"></i>
+                                <p>No FIR records found.</p>
+                                <a href="{% url 'cases:fir_create' %}" class="btn btn-primary btn-sm">
+                                    <i class="bi bi-plus-lg me-1"></i> Register First FIR
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}Maintenance — PDMS{% endblock %}
+{% block nav_vehicles %}active text-white{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'fleet:vehicle_list' %}">Vehicles</a></li>
+<li class="breadcrumb-item"><a href="{% url 'fleet:vehicle_detail' vehicle.id %}">{{ vehicle.plate_number }}</a></li>
+<li class="breadcrumb-item active">Maintenance</li>
+{% endblock %}
+{% block page_title %}Add Maintenance Record{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8 col-xl-6">
+        <div class="card content-card">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-wrench text-warning"></i>
+                Maintenance for <strong>{{ vehicle.plate_number }}</strong>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Type <span class="text-danger">*</span></label>
+                            <select name="maintenance_type" class="form-select" required>
+                                <option value="">Select...</option>
+                                <option value="ROUTINE">Routine</option>
+                                <option value="REPAIR">Repair</option>
+                                <option value="INSPECTION">Inspection</option>
+                                <option value="EMERGENCY">Emergency</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Status</label>
+                            <select name="status" class="form-select">
+                                <option value="PENDING">Pending</option>
+                                <option value="IN_PROGRESS">In Progress</option>
+                                <option value="COMPLETED">Completed</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Service Date <span class="text-danger">*</span></label>
+                            <input type="date" name="service_date" class="form-control" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Next Service Date</label>
+                            <input type="date" name="next_service_date" class="form-control">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Cost</label>
+                            <input type="number" name="cost" class="form-control" step="0.01" placeholder="e.g. 5000.00">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Performed By</label>
+                            <input type="text" name="performed_by" class="form-control" placeholder="Garage / Mechanic">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Description <span class="text-danger">*</span></label>
+                            <textarea name="description" class="form-control" rows="3" placeholder="Describe the maintenance work..." required></textarea>
+                        </div>
+                    </div>
+                    <hr class="my-3">
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-warning">
+                            <i class="bi bi-check-lg me-1"></i> Save Record
+                        </button>
+                        <a href="{% url 'fleet:vehicle_detail' vehicle.id %}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

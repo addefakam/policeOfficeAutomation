@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}Add Vehicle — PDMS{% endblock %}
+{% block nav_vehicles %}active text-white{% endblock %}
+{% block page_title %}Add Vehicle{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8 col-xl-6">
+        <div class="card content-card">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-truck text-primary"></i> Register New Vehicle
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label">Plate Number <span class="text-danger">*</span></label>
+                            <input type="text" name="plate_number" class="form-control" placeholder="e.g. AA 123 BC" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Year</label>
+                            <input type="number" name="year" class="form-control" placeholder="e.g. 2023" min="1990" max="2030">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Vehicle Type <span class="text-danger">*</span></label>
+                            <select name="vehicle_type" class="form-select" required>
+                                <option value="">Select...</option>
+                                <option value="PATROL">Patrol Car</option>
+                                <option value="VAN">Van</option>
+                                <option value="MOTORCYCLE">Motorcycle</option>
+                                <option value="TRUCK">Truck</option>
+                                <option value="SUV">SUV</option>
+                                <option value="OTHER">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Make <span class="text-danger">*</span></label>
+                            <input type="text" name="make" class="form-control" placeholder="e.g. Toyota" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Model</label>
+                            <input type="text" name="model" class="form-control" placeholder="e.g. Hilux">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Mileage (km)</label>
+                            <input type="number" name="mileage" class="form-control" value="0" min="0">
+                        </div>
+                    </div>
+                    <hr class="my-3">
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg me-1"></i> Add Vehicle
+                        </button>
+                        <a href="{% url 'fleet:vehicle_list' %}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

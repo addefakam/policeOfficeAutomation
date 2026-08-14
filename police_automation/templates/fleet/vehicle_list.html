@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}Vehicles — PDMS{% endblock %}
+{% block nav_vehicles %}active text-white{% endblock %}
+{% block page_title %}Vehicles{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h5 class="fw-bold mb-0"><i class="bi bi-truck me-2"></i>Vehicle Fleet</h5>
+    <div class="d-flex gap-2 align-items-center">
+        <select class="form-select form-select-sm" onchange="window.location.href='?status='+this.value" style="min-width:150px;">
+            <option value="">All Statuses</option>
+            <option value="AVAILABLE" {% if request.GET.status == 'AVAILABLE' %}selected{% endif %}>Available</option>
+            <option value="ASSIGNED" {% if request.GET.status == 'ASSIGNED' %}selected{% endif %}>Assigned</option>
+            <option value="MAINTENANCE" {% if request.GET.status == 'MAINTENANCE' %}selected{% endif %}>In Maintenance</option>
+            <option value="OUT_OF_SERVICE" {% if request.GET.status == 'OUT_OF_SERVICE' %}selected{% endif %}>Out of Service</option>
+        </select>
+        {% if user|has_role:'CLERK' %}
+        <a href="{% url 'fleet:vehicle_create' %}" class="btn btn-primary btn-sm">
+            <i class="bi bi-plus-lg me-1"></i> Add Vehicle
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card content-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Plate #</th>
+                        <th>Type</th>
+                        <th>Make / Model</th>
+                        <th>Year</th>
+                        <th>Mileage</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for v in vehicles %}
+                    <tr>
+                        <td class="fw-semibold"><a href="{% url 'fleet:vehicle_detail' v.id %}" class="text-decoration-none">{{ v.plate_number }}</a></td>
+                        <td>
+                            <span class="badge bg-dark-subtle text-dark">
+                                <i class="bi {% if v.vehicle_type == 'PATROL' %}bi-car-front
+                                {% elif v.vehicle_type == 'MOTORCYCLE' %}bi-bicycle
+                                {% elif v.vehicle_type == 'SUV' %}bi-truck
+                                {% elif v.vehicle_type == 'VAN' %}bi-truck
+                                {% elif v.vehicle_type == 'TRUCK' %}bi-truck
+                                {% else %}bi-question{% endif %} me-1"></i>
+                                {{ v.get_vehicle_type_display }}
+                            </span>
+                        </td>
+                        <td>{{ v.make }} {{ v.model }}</td>
+                        <td>{{ v.year|default:"—" }}</td>
+                        <td>{{ v.mileage|default:"0" }} km</td>
+                        <td>
+                            <span class="badge
+                                {% if v.status == 'AVAILABLE' %}bg-success
+                                {% elif v.status == 'ASSIGNED' %}bg-primary
+                                {% elif v.status == 'MAINTENANCE' %}bg-warning text-dark
+                                {% else %}bg-danger{% endif %}">{{ v.get_status_display }}</span>
+                        </td>
+                        <td>
+                            <a href="{% url 'fleet:vehicle_detail' v.id %}" class="btn btn-outline-primary btn-sm" title="View Details">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-4">
+                            <div class="empty-state">
+                                <i class="bi bi-truck d-block"></i>
+                                <p>No vehicles registered.</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

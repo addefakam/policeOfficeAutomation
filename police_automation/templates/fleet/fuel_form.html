@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}Fuel Log — PDMS{% endblock %}
+{% block nav_vehicles %}active text-white{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'fleet:vehicle_list' %}">Vehicles</a></li>
+<li class="breadcrumb-item"><a href="{% url 'fleet:vehicle_detail' vehicle.id %}">{{ vehicle.plate_number }}</a></li>
+<li class="breadcrumb-item active">Fuel Log</li>
+{% endblock %}
+{% block page_title %}Add Fuel Log{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8 col-xl-6">
+        <div class="card content-card">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-fuel-pump text-success"></i>
+                Fuel Log for <strong>{{ vehicle.plate_number }}</strong>
+            </div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Date <span class="text-danger">*</span></label>
+                            <input type="date" name="date" class="form-control" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Liters <span class="text-danger">*</span></label>
+                            <input type="number" name="liters" class="form-control" step="0.1" min="0.1" placeholder="e.g. 45.5" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Cost</label>
+                            <input type="number" name="cost" class="form-control" step="0.01" placeholder="e.g. 3000.00">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Odometer (km)</label>
+                            <input type="number" name="odometer" class="form-control" min="0" placeholder="e.g. 45000">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Fuel Station</label>
+                            <input type="text" name="station" class="form-control" placeholder="e.g. Shell Bole">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Filled By</label>
+                            <input type="text" name="filled_by" class="form-control" placeholder="Officer name">
+                        </div>
+                    </div>
+                    <hr class="my-3">
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-check-lg me-1"></i> Save Fuel Log
+                        </button>
+                        <a href="{% url 'fleet:vehicle_detail' vehicle.id %}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

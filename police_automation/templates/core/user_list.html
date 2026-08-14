@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}User Management — PDMS{% endblock %}
+{% block nav_users %}active text-white{% endblock %}
+{% block page_title %}User Management{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="fw-bold mb-0"><i class="bi bi-people me-2"></i>System Users</h5>
+    <a href="{% url 'core:user_create' %}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i> Create User
+    </a>
+</div>
+
+<div class="card content-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Full Name</th>
+                        <th>Role</th>
+                        <th>Linked Officer</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in users %}
+                    <tr class="{% if not u.is_active %}opacity-50{% endif %}">
+                        <td><strong>{{ u.username }}</strong></td>
+                        <td>{{ u.get_full_name|default:"—" }}</td>
+                        <td>{{ u.role|role_badge|safe }}</td>
+                        <td>{{ u.officer|default:"—" }}</td>
+                        <td>
+                            {% if u.is_active %}
+                            <span class="badge bg-success-subtle text-success">Active</span>
+                            {% else %}
+                            <span class="badge bg-danger-subtle text-danger">Inactive</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <a href="{% url 'core:user_edit' u.id %}" class="btn btn-outline-primary" title="Edit">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                {% if u.id != request.user.id %}
+                                <a href="{% url 'core:user_toggle' u.id %}" class="btn btn-outline-{% if u.is_active %}danger{% else %}success{% endif %}" title="{% if u.is_active %}Deactivate{% else %}Activate{% endif %}">
+                                    <i class="bi bi-{% if u.is_active %}slash-circle{% else %}check-circle{% endif %}"></i>
+                                </a>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">No users found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}Attendance — PDMS{% endblock %}
+{% block nav_attendance %}active text-white{% endblock %}
+{% block page_title %}Mark Attendance{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+        <h5 class="fw-bold mb-0"><i class="bi bi-calendar-check me-2"></i>Attendance Register</h5>
+        <span class="text-muted">Date: <strong>{{ today|date:"l, F d, Y" }}</strong></span>
+    </div>
+    {% if officers %}
+    <button type="submit" form="attendanceForm" class="btn btn-primary">
+        <i class="bi bi-check-lg me-1"></i> Save Attendance
+    </button>
+    {% endif %}
+</div>
+
+<form method="post" id="attendanceForm">
+    {% csrf_token %}
+    <div class="card content-card">
+        <div class="card-body p-0">
+            <div class="table-responsive" style="max-height: 520px; overflow-y: auto;">
+                <table class="table table-hover table-sm mb-0">
+                    <thead class="sticky-top">
+                        <tr>
+                            <th>#</th>
+                            <th>Badge #</th>
+                            <th>Officer Name</th>
+                            <th>Rank</th>
+                            <th>Unit</th>
+                            <th class="text-center">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for officer in officers %}
+                        {% with att=existing|get_item:officer.id %}
+                        <tr class="{% if att and att.status == 'PRESENT' %}table-success{% elif att and att.status == 'ABSENT' %}table-danger{% elif att and att.status == 'LEAVE' %}table-warning{% endif %}">
+                            <td class="text-muted">{{ forloop.counter }}</td>
+                            <td><code>{{ officer.badge_number }}</code></td>
+                            <td class="fw-semibold">{{ officer.full_name }}</td>
+                            <td><small>{{ officer.rank }}</small></td>
+                            <td><small class="text-muted">{{ officer.unit|default:"—" }}</small></td>
+                            <td class="text-center">
+                                <select name="status_{{ officer.id }}" class="form-select form-select-sm text-center attendance-select"
+                                    style="min-width: 140px;"
+                                    data-default="{% if att %}{{ att.status }}{% else %}PRESENT{% endif %}">
+                                    <option value="PRESENT" {% if not att or att.status == 'PRESENT' %}selected{% endif %}>
+                                        <i class="bi bi-check-circle"></i> Present
+                                    </option>
+                                    <option value="ABSENT" {% if att and att.status == 'ABSENT' %}selected{% endif %}>
+                                        <i class="bi bi-x-circle"></i> Absent
+                                    </option>
+                                    <option value="LEAVE" {% if att and att.status == 'LEAVE' %}selected{% endif %}>
+                                        <i class="bi bi-envelope"></i> On Leave
+                                    </option>
+                                    <option value="DUTY" {% if att and att.status == 'DUTY' %}selected{% endif %}>
+                                        <i class="bi bi-briefcase"></i> On Duty
+                                    </option>
+                                </select>
+                            </td>
+                        </tr>
+                        {% endwith %}
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center text-muted py-4">No active officers found.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Highlight row based on status change
+    document.querySelectorAll('.attendance-select').forEach(sel => {
+        sel.addEventListener('change', function() {
+            const row = this.closest('tr');
+            row.classList.remove('table-success', 'table-danger', 'table-warning', 'table-info');
+            if (this.value === 'PRESENT') row.classList.add('table-success');
+            else if (this.value === 'ABSENT') row.classList.add('table-danger');
+            else if (this.value === 'LEAVE') row.classList.add('table-warning');
+            else if (this.value === 'DUTY') row.classList.add('table-info');
+        });
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% load role_tags %}
+
+{% block title %}Duty Assignments — PDMS{% endblock %}
+{% block nav_duty %}active text-white{% endblock %}
+{% block page_title %}Duty Assignments{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h5 class="fw-bold mb-0"><i class="bi bi-clipboard-data me-2"></i>Duty Assignments</h5>
+    <div class="d-flex gap-2 align-items-center">
+        <input type="date" name="date_filter" class="form-control form-control-sm" style="width:160px;"
+            value="{{ request.GET.date }}" onchange="window.location.href='?date='+this.value">
+        <a href="{% url 'staff:duty_create' %}" class="btn btn-primary btn-sm">
+            <i class="bi bi-plus-lg me-1"></i> New Assignment
+        </a>
+    </div>
+</div>
+
+<div class="card content-card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Officer</th>
+                        <th>Shift</th>
+                        <th>Assignment Type</th>
+                        <th>Location</th>
+                        <th>Remarks</th>
+                        <th>Assigned By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for da in assignments %}
+                    <tr>
+                        <td class="text-nowrap fw-semibold">{{ da.date|date:"M d, Y" }}</td>
+                        <td>{{ da.officer.full_name }} <small class="text-muted">({{ da.officer.badge_number }})</small></td>
+                        <td>
+                            <span class="badge
+                                {% if da.shift == 'MORNING' %}bg-warning text-dark
+                                {% elif da.shift == 'AFTERNOON' %}bg-info
+                                {% else %}bg-dark{% endif %}"> {{ da.get_shift_display }}</span>
+                        </td>
+                        <td>{{ da.assignment_type|default:"—" }}</td>
+                        <td>{{ da.location|default:"—" }}</td>
+                        <td class="small text-muted">{{ da.remarks|truncatewords:8|default:"—" }}</td>
+                        <td class="small text-muted">{{ da.assigned_by|default:"—" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-4">
+                            <div class="empty-state">
+                                <i class="bi bi-clipboard-x d-block"></i>
+                                <p>No duty assignments found.</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
