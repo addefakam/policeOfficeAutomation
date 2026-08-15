@@ -59,27 +59,37 @@ def _drop_all_tables(conn):
 def _admin_user_exists(conn):
     """Return True if the 'admin' user row exists in core_customuser."""
     with conn.cursor() as cursor:
-        if conn.vendor == 'postgresql':
-            cursor.execute(
-                "SELECT 1 FROM core_customuser WHERE username='admin' LIMIT 1"
-            )
-        else:
-            cursor.execute(
-                "SELECT 1 FROM core_customuser WHERE username='admin' LIMIT 1"
-            )
+        cursor.execute(
+            "SELECT 1 FROM core_customuser WHERE username='admin' LIMIT 1"
+        )
         return cursor.fetchone() is not None
+
+
+def _officers_exist(conn):
+    """Return True if at least one officer exists in cases_officer."""
+    with conn.cursor() as cursor:
+        try:
+            cursor.execute("SELECT 1 FROM cases_officer LIMIT 1")
+            return cursor.fetchone() is not None
+        except Exception:
+            return False
+
+
+def _db_is_ready(conn):
+    """Return True if DB has both admin user AND officers (full seed done)."""
+    return _admin_user_exists(conn) and _officers_exist(conn)
 
 
 def _ensure_db():
     """
     Ensure the database is fully initialised AND seeded.
 
-    The check is for the *admin user*, not just the table, because
-    Vercel's build-time ``migrate`` creates the tables but does NOT
-    seed data.  Checking for the table alone would skip the seed step.
+    The check is for BOTH the admin user AND officers, because the
+    raw-SQL fallback may have created only the admin user (old code).
+    Checking for the admin alone would skip officer creation.
 
     Strategy (idempotent — safe to call on every request):
-      1. If admin user exists → DB is fully ready, return immediately.
+      1. If admin user + officers exist → DB is fully ready, return.
       2. Otherwise:
          - Acquire a PostgreSQL advisory lock (if Postgres).
          - Re-check after locking.
@@ -96,17 +106,15 @@ def _ensure_db():
     conn = connections['default']
     vendor = conn.vendor
 
-    # --- Step 1: fast path — admin user exists? ----------------------------
+    # --- Step 1: fast path — admin user AND officers exist? -------------
     try:
-        if _admin_user_exists(conn):
-            logger.info('[PDMS] Admin user found — DB is ready.')
+        if _db_is_ready(conn):
+            logger.info('[PDMS] Admin user + officers found — DB is ready.')
             _MIGRATED = True
             os.environ['_PDMS_MIGRATED'] = '1'
             return
     except Exception as exc:
-        # Table doesn't exist yet ("no such table") or DB unreachable.
-        # Either way, fall through to full init.
-        logger.debug('[PDMS] Admin-user check: %s — proceeding to init.', exc)
+        logger.debug('[PDMS] Ready check: %s — proceeding to init.', exc)
 
     # --- Step 2: determine what state the DB is in ----------------------
     #   A) core_customuser table EXISTS  → Vercel build already migrated,
@@ -135,7 +143,7 @@ def _ensure_db():
 
         # Re-check after locking
         try:
-            if _admin_user_exists(conn):
+            if _db_is_ready(conn):
                 logger.info('[PDMS] Another instance already initialised the DB.')
                 _MIGRATED = True
                 os.environ['_PDMS_MIGRATED'] = '1'
