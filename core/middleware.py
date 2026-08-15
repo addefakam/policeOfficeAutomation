@@ -53,18 +53,35 @@ def _drop_all_tables(conn):
             logger.info('[PDMS] Dropped %d SQLite tables: %s', len(tables), tables)
 
 
+def _admin_user_exists(conn):
+    """Return True if the 'admin' user row exists in core_customuser."""
+    with conn.cursor() as cursor:
+        if conn.vendor == 'postgresql':
+            cursor.execute(
+                "SELECT 1 FROM core_customuser WHERE username='admin' LIMIT 1"
+            )
+        else:
+            cursor.execute(
+                "SELECT 1 FROM core_customuser WHERE username='admin' LIMIT 1"
+            )
+        return cursor.fetchone() is not None
+
+
 def _ensure_db():
     """
-    Ensure the database is fully initialised.
+    Ensure the database is fully initialised AND seeded.
+
+    The check is for the *admin user*, not just the table, because
+    Vercel's build-time ``migrate`` creates the tables but does NOT
+    seed data.  Checking for the table alone would skip the seed step.
 
     Strategy (idempotent — safe to call on every request):
-      1. If core_customuser already exists → DB is ready, return immediately.
-      2. Otherwise the DB is in a bad / empty state.
-         - Acquire a PostgreSQL advisory lock (if Postgres) to prevent
-           concurrent cold-starts from racing.
-         - Re-check after locking (another instance may have finished).
-         - DROP every table (including the corrupted django_migrations).
-         - Run Django's migrate from a completely clean slate.
+      1. If admin user exists → DB is fully ready, return immediately.
+      2. Otherwise:
+         - Acquire a PostgreSQL advisory lock (if Postgres).
+         - Re-check after locking.
+         - DROP every table (clean slate, avoids InconsistentMigrationHistory).
+         - Run Django's migrate from scratch.
          - Seed demo data.
     """
     global _MIGRATED
@@ -72,26 +89,34 @@ def _ensure_db():
         return
 
     from django.db import connections
-    from django.db.utils import OperationalError
 
     conn = connections['default']
     vendor = conn.vendor
 
-    # --- Step 1: fast path ------------------------------------------------
+    # --- Step 1: fast path — admin user exists? ----------------------------
     try:
-        if _table_exists(conn, 'core_customuser'):
+        if _admin_user_exists(conn):
+            logger.info('[PDMS] Admin user found — DB is ready.')
             _MIGRATED = True
             os.environ['_PDMS_MIGRATED'] = '1'
             return
-    except OperationalError:
-        logger.warning('[PDMS] Cannot reach the database — skipping auto-setup.')
-        return
     except Exception as exc:
-        logger.warning('[PDMS] Unexpected error checking tables: %s', exc)
-        return
+        # Table doesn't exist yet ("no such table") or DB unreachable.
+        # Either way, fall through to full init.
+        logger.debug('[PDMS] Admin-user check: %s — proceeding to init.', exc)
 
-    # --- Step 2: tables missing — full init --------------------------------
-    logger.info('[PDMS] core_customuser missing — initialising database…')
+    # --- Step 2: determine what state the DB is in ----------------------
+    #   A) core_customuser table EXISTS  → Vercel build already migrated,
+    #      just need to seed data.
+    #   B) core_customuser table MISSING → DB is empty or corrupted;
+    #      nuke everything and re-migrate from scratch.
+
+    need_full_init = False
+    try:
+        if not _table_exists(conn, 'core_customuser'):
+            need_full_init = True
+    except Exception:
+        need_full_init = True
 
     lock_acquired = False
     try:
@@ -105,9 +130,9 @@ def _ensure_db():
             except Exception as exc:
                 logger.warning('[PDMS] Advisory lock failed: %s', exc)
 
-        # Re-check: another instance may have finished while we waited
+        # Re-check after locking
         try:
-            if _table_exists(conn, 'core_customuser'):
+            if _admin_user_exists(conn):
                 logger.info('[PDMS] Another instance already initialised the DB.')
                 _MIGRATED = True
                 os.environ['_PDMS_MIGRATED'] = '1'
@@ -115,38 +140,43 @@ def _ensure_db():
         except Exception:
             pass
 
-        # Close all connections so we start with a clean transaction state
-        connections.close_all()
-        conn = connections['default']
+        if need_full_init:
+            # --- 2A: full init — drop, migrate, seed ---------------------------
+            logger.info('[PDMS] Tables missing — full init (drop + migrate + seed)…')
 
-        # Drop everything
-        logger.info('[PDMS] Dropping all tables for a clean slate…')
-        try:
-            _drop_all_tables(conn)
-        except Exception as exc:
-            logger.error('[PDMS] Failed to drop tables: %s', exc)
-            # Force-close and reopen to clear any broken transaction state
+            # Close all connections for a clean transaction state
             connections.close_all()
             conn = connections['default']
+
+            # Drop everything — nuke the corrupted migration history
+            logger.info('[PDMS] Dropping all tables for a clean slate…')
             try:
                 _drop_all_tables(conn)
-            except Exception as exc2:
-                logger.error('[PDMS] Retry drop also failed: %s', exc2)
-                return
+            except Exception as exc:
+                logger.error('[PDMS] Failed to drop tables: %s', exc)
+                connections.close_all()
+                conn = connections['default']
+                try:
+                    _drop_all_tables(conn)
+                except Exception as exc2:
+                    logger.error('[PDMS] Retry drop also failed: %s', exc2)
+                    return
 
-        # Run Django migrate from scratch
-        logger.info('[PDMS] Running Django migrate…')
-        from django.core.management import call_command
-        try:
-            call_command('migrate', verbosity=1, interactive=False)
-            logger.info('[PDMS] Migrate completed successfully.')
-        except Exception as exc:
-            logger.error('[PDMS] Migrate failed: %s\n%s', exc, traceback.format_exc())
-            # Last resort: try schema-editor fallback
-            logger.info('[PDMS] Falling back to schema-editor…')
-            _schema_editor_fallback(conn)
+            # Run Django migrate from scratch
+            logger.info('[PDMS] Running Django migrate…')
+            from django.core.management import call_command
+            try:
+                call_command('migrate', verbosity=1, interactive=False)
+                logger.info('[PDMS] Migrate completed successfully.')
+            except Exception as exc:
+                logger.error('[PDMS] Migrate failed: %s\n%s', exc, traceback.format_exc())
+                logger.info('[PDMS] Falling back to schema-editor…')
+                _schema_editor_fallback(conn)
+        else:
+            # --- 2B: tables exist (Vercel build migrated), just seed ----------
+            logger.info('[PDMS] Tables exist (Vercel build). Skipping migrate, seeding…')
 
-        # Seed demo data
+        # Seed demo data (needed in both paths)
         logger.info('[PDMS] Seeding demo data…')
         try:
             from seed_data import seed
