@@ -3,11 +3,15 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib import messages
 from django.utils import timezone
 from django.utils.dateparse import parse_date
+from django.http import HttpResponse
 from .decorators import require_auth, require_role
 from .middleware import log_audit, get_client_ip
 from .models import CustomUser, AuditLog, ROLE_HIERARCHY
 from .forms import LoginForm, UserCreateForm, UserEditForm
 from datetime import timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 DEMO_ACCOUNTS = [
     {'username': 'admin', 'password': 'admin123', 'role': 'ADMIN'},
@@ -16,6 +20,62 @@ DEMO_ACCOUNTS = [
     {'username': 'kebede', 'password': 'inv123', 'role': 'INVESTIGATOR'},
     {'username': 'clerk_tigist', 'password': 'clerk123', 'role': 'CLERK'},
 ]
+
+
+def diag_view(request):
+    """Temporary diagnostic page — shows DB state for debugging.
+    Visit /diag/ to see what's happening on Vercel.
+    Remove this after debugging.
+    """
+    from django.db import connections
+    conn = connections['default']
+    lines = []
+    lines.append(f'<h2>DB Vendor: {conn.vendor}</h2>')
+
+    # Check tables
+    with conn.cursor() as cursor:
+        if conn.vendor == 'postgresql':
+            cursor.execute(
+                "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
+            )
+        else:
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            )
+        tables = [r[0] for r in cursor.fetchall()]
+    lines.append(f'<p>Tables ({len(tables)}): {', '.join(tables)}</p>')
+
+    # Check users
+    try:
+        users = CustomUser.objects.all()
+        lines.append(f'<p>Users: {users.count()}</p>')
+        for u in users:
+            pw_ok = u.check_password('admin123') if u.username == 'admin' else u.check_password('inv123')
+            lines.append(
+                f'<pre>  {u.username} | role={u.role} | active={u.is_active} '
+                f'| pw_hash={u.password[:40]}... | pw_ok={pw_ok}</pre>'
+            )
+    except Exception as e:
+        lines.append(f'<p style="color:red">Users error: {e}</p>')
+
+    # Test authenticate directly
+    try:
+        test_user = authenticate(request, username='admin', password='admin123')
+        lines.append(f'<p>authenticate(admin, admin123) = {test_user}</p>')
+    except Exception as e:
+        lines.append(f'<p style="color:red">authenticate error: {e}</p>')
+
+    # Check AUTH_USER_MODEL
+    from django.contrib.auth import get_user_model
+    lines.append(f'<p>AUTH_USER_MODEL = {get_user_model()._meta.label}</p>')
+    lines.append(f'<p>Default manager = {get_user_model()._default_manager.__class__.__name__}</p>')
+    try:
+        by_natural = get_user_model()._default_manager.get_by_natural_key('admin')
+        lines.append(f'<p>get_by_natural_key(admin) = {by_natural}</p>')
+    except Exception as e:
+        lines.append(f'<p style="color:red">get_by_natural_key error: {e}</p>')
+
+    return HttpResponse('<html><body>' + '\n'.join(lines) + '</body></html>')
 
 
 def login_view(request):

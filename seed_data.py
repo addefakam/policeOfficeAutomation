@@ -48,9 +48,10 @@ def seed():
                 'officer': officers.get(officer_badge),
             }
         )
-        if created:
-            user.set_password(password)
-            user.save(update_fields=['password'])
+        # Always set password — handles edge case where user exists but
+        # password was never set (e.g. partial seed failure on Vercel).
+        user.set_password(password)
+        user.save(update_fields=['password'])
         users[username] = user
     print(f'  Created {len(users)} users')
 
