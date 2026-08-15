@@ -1,15 +1,2 @@
-*.pyc
-__pycache__/
-*.pyo
-db.sqlite3
-*.log
-.env
-upload/
 skills/
-download/
-.zscripts/
-mini-services/
-db/
-staticfiles/
-media/
-.vercel/
+node_modules/
