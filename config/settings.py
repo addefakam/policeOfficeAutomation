@@ -14,7 +14,7 @@ SECRET_KEY = os.environ.get(
     'django-insecure-police-dept-automation-x9$k2m!f8n@q7w#j4p'
 )
 
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() == 'true'
+DEBUG = os.environ.get('DJANGO_DEBUG', '').lower() in ('true', '1', 'yes')
 ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',')
 
 # Apps

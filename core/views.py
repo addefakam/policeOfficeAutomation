@@ -38,30 +38,52 @@ def _check_db():
 
 
 def _auto_migrate():
-    """Create tables directly via schema editor, bypassing migration history."""
+    """Create tables directly via schema editor, bypassing migration history.
+    Runs multiple passes to resolve foreign key dependencies.
+    """
     from django.apps import apps
     from django.db import connections
     connection = connections['default']
-    with connection.schema_editor() as schema_editor:
-        for app_config in apps.get_app_configs():
-            if not app_config.models_module:
-                continue
-            for model in app_config.get_models():
-                try:
-                    schema_editor.create_model(model)
-                except (ProgrammingError, OperationalError):
-                    pass  # table already exists
+
+    all_models = []
+    for app_config in apps.get_app_configs():
+        if app_config.models_module:
+            all_models.extend(app_config.get_models())
+
+    for _pass in range(5):
+        created_any = False
+        try:
+            with connection.schema_editor() as schema_editor:
+                for model in all_models:
+                    try:
+                        schema_editor.create_model(model)
+                        created_any = True
+                    except Exception:
+                        pass
+        except Exception:
+            pass  # index/constraint already exists — tables were still created
+        if not created_any:
+            break
+
     from seed_data import seed
     seed()
 
 
 def login_view(request):
     # Auto-migrate if tables don't exist yet
-    if not _check_db():
+    try:
+        if not _check_db():
+            _auto_migrate()
+    except Exception:
         _auto_migrate()
 
-    if request.user.is_authenticated:
-        return redirect('core:dashboard')
+    try:
+        if request.user.is_authenticated:
+            return redirect('core:dashboard')
+    except Exception:
+        _auto_migrate()
+        if request.user.is_authenticated:
+            return redirect('core:dashboard')
     if request.method == 'POST':
         form = LoginForm(request.POST)
         if form.is_valid():
@@ -69,7 +91,7 @@ def login_view(request):
             password = form.cleaned_data['password']
             try:
                 user = authenticate(request, username=username, password=password)
-            except (ProgrammingError, OperationalError, InconsistentMigrationHistory):
+            except Exception:
                 _auto_migrate()
                 user = authenticate(request, username=username, password=password)
             if user:
@@ -85,7 +107,6 @@ def login_view(request):
                     log_audit(request, 'LOGIN', details={'method': 'form'})
                     return redirect('core:dashboard')
             else:
-                # Increment failed attempts
                 try:
                     u = CustomUser.objects.get(username=username)
                     u.failed_attempts += 1

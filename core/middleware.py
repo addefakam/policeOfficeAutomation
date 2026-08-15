@@ -33,15 +33,24 @@ def _ensure_tables():
         if not exists:
             logger.info('[PDMS] Tables missing — creating via schema editor...')
             from django.apps import apps
-            with conn.schema_editor() as schema_editor:
-                for app_config in apps.get_app_configs():
-                    if not app_config.models_module:
-                        continue
-                    for model in app_config.get_models():
-                        try:
-                            schema_editor.create_model(model)
-                        except Exception:
-                            pass
+            all_models = []
+            for ac in apps.get_app_configs():
+                if ac.models_module:
+                    all_models.extend(ac.get_models())
+            for _pass in range(5):
+                created = False
+                try:
+                    with conn.schema_editor() as se:
+                        for model in all_models:
+                            try:
+                                se.create_model(model)
+                                created = True
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                if not created:
+                    break
             logger.info('[PDMS] Tables created — seeding...')
             from seed_data import seed
             seed()
