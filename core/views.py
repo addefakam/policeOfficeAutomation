@@ -38,9 +38,7 @@ def _check_db():
 
 
 def _auto_migrate():
-    """Create tables directly via schema editor, bypassing migration history.
-    Runs multiple passes to resolve foreign key dependencies.
-    """
+    """Create tables via schema editor in dependency order."""
     from django.apps import apps
     from django.db import connections
     connection = connections['default']
@@ -50,20 +48,42 @@ def _auto_migrate():
         if app_config.models_module:
             all_models.extend(app_config.get_models())
 
-    for _pass in range(5):
-        created_any = False
-        try:
-            with connection.schema_editor() as schema_editor:
-                for model in all_models:
-                    try:
-                        schema_editor.create_model(model)
-                        created_any = True
-                    except Exception:
-                        pass
-        except Exception:
-            pass  # index/constraint already exists — tables were still created
-        if not created_any:
+    # Topological sort: models with no FK deps first
+    model_names = {m._meta.label for m in all_models}
+    sorted_models = []
+    remaining = list(all_models)
+    for _ in range(len(all_models) + 1):
+        if not remaining:
             break
+        batch = []
+        still_remaining = []
+        for model in remaining:
+            deps = [
+                f.related_model._meta.label
+                for f in model._meta.get_fields()
+                if f.is_relation and f.many_to_one
+                and hasattr(f, 'related_model') and f.related_model
+                and f.related_model._meta.label in model_names
+                and f.related_model._meta.label != model._meta.label
+            ]
+            if all(d in {m._meta.label for m in sorted_models} for d in deps):
+                batch.append(model)
+            else:
+                still_remaining.append(model)
+        sorted_models.extend(batch)
+        remaining = still_remaining
+    sorted_models.extend(remaining)
+
+    # Create each model — no atomic wrapper so DDL commits immediately
+    for model in sorted_models:
+        try:
+            with connection.schema_editor() as se:
+                se.create_model(model)
+        except Exception:
+            try:
+                connection.rollback()
+            except Exception:
+                pass
 
     from seed_data import seed
     seed()

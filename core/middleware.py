@@ -37,20 +37,35 @@ def _ensure_tables():
             for ac in apps.get_app_configs():
                 if ac.models_module:
                     all_models.extend(ac.get_models())
-            for _pass in range(5):
-                created = False
+            # Topological sort
+            model_names = {m._meta.label for m in all_models}
+            sorted_models = []
+            remaining = list(all_models)
+            for _ in range(len(all_models) + 1):
+                if not remaining:
+                    break
+                batch, still = [], []
+                for model in remaining:
+                    deps = [f.related_model._meta.label for f in model._meta.get_fields()
+                            if f.is_relation and f.many_to_one and hasattr(f, 'related_model')
+                            and f.related_model and f.related_model._meta.label in model_names
+                            and f.related_model._meta.label != model._meta.label]
+                    if all(d in {m._meta.label for m in sorted_models} for d in deps):
+                        batch.append(model)
+                    else:
+                        still.append(model)
+                sorted_models.extend(batch)
+                remaining = still
+            sorted_models.extend(remaining)
+            for model in sorted_models:
                 try:
                     with conn.schema_editor() as se:
-                        for model in all_models:
-                            try:
-                                se.create_model(model)
-                                created = True
-                            except Exception:
-                                pass
+                        se.create_model(model)
                 except Exception:
-                    pass
-                if not created:
-                    break
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
             logger.info('[PDMS] Tables created — seeding...')
             from seed_data import seed
             seed()
