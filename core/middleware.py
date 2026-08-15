@@ -199,62 +199,71 @@ def _ensure_db():
             except Exception:
                 pass
 
-            # ---- Raw-SQL fallback: create admin user directly ----------------
+            # ---- Raw-SQL fallback: create officers + users directly  -----------
             # This bypasses the ORM entirely in case of model/field issues.
-            logger.info('[PDMS] Attempting raw-SQL admin user fallback…')
+            logger.info('[PDMS] Attempting raw-SQL fallback (officers + users)…')
             try:
                 from django.db import transaction
                 from django.contrib.auth.hashers import make_password
+                from django.utils import timezone
                 # Get a fresh connection — the old one may be in error state
                 connections.close_all()
                 fresh_conn = connections['default']
-                pw_hash = make_password('admin123')
-                # Use Python timestamp — works on both PostgreSQL and SQLite
-                from django.utils import timezone
                 now_iso = timezone.now().isoformat()
+                is_pg = fresh_conn.vendor == 'postgresql'
+                returning = ' RETURNING id' if is_pg else ''
+                conflict = 'ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password, role = EXCLUDED.role, is_staff = EXCLUDED.is_staff, is_active = EXCLUDED.is_active, is_superuser = EXCLUDED.is_superuser, updated_at = EXCLUDED.updated_at' if is_pg else 'ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password, role = EXCLUDED.role, is_staff = EXCLUDED.is_staff, is_active = EXCLUDED.is_active, is_superuser = EXCLUDED.is_superuser, updated_at = EXCLUDED.updated_at'
                 with fresh_conn.cursor() as cursor:
-                    # Use INSERT … ON CONFLICT to be idempotent
-                    if fresh_conn.vendor == 'postgresql':
-                        cursor.execute("""
-                            INSERT INTO core_customuser
-                                (username, full_name, role, is_staff, is_active,
-                                 is_superuser, failed_attempts, password,
-                                 created_at, updated_at)
-                            VALUES
-                                ('admin', 'System Administrator', 'ADMIN',
-                                 True, True, True, 0, %s, %s, %s)
-                            ON CONFLICT (username) DO UPDATE SET
-                                password = EXCLUDED.password,
-                                role = EXCLUDED.role,
-                                is_staff = EXCLUDED.is_staff,
-                                is_active = EXCLUDED.is_active,
-                                is_superuser = EXCLUDED.is_superuser,
-                                updated_at = EXCLUDED.updated_at
-                            RETURNING id
-                        """, [pw_hash, now_iso, now_iso])
-                    else:
-                        cursor.execute("""
-                            INSERT INTO core_customuser
-                                (username, full_name, role, is_staff, is_active,
-                                 is_superuser, failed_attempts, password,
-                                 created_at, updated_at)
-                            VALUES
-                                ('admin', 'System Administrator', 'ADMIN',
-                                 True, True, True, 0, %s, %s, %s)
-                            ON CONFLICT (username) DO UPDATE SET
-                                password = EXCLUDED.password,
-                                role = EXCLUDED.role,
-                                is_staff = EXCLUDED.is_staff,
-                                is_active = EXCLUDED.is_active,
-                                is_superuser = EXCLUDED.is_superuser,
-                                updated_at = EXCLUDED.updated_at
-                        """, [pw_hash, now_iso, now_iso])
-                    row = cursor.fetchone()
-                    logger.info('[PDMS] Raw-SQL fallback: admin user id=%s', row)
+                    # 1) Officers
+                    officers_data = [
+                        ('OFF-001', 'Haile Gebremariam', 'Inspector', '0911223344', 'hq@police.gov', 'CID'),
+                        ('OFF-002', 'Abebe Kebede', 'Sergeant', '0922334455', 'abebe@police.gov', 'CID'),
+                        ('OFF-003', 'Kebede Tadesse', 'Sergeant', '0933445566', 'kebede@police.gov', 'Patrol'),
+                        ('OFF-004', 'Tigist Mekonnen', 'Constable', '0944556677', 'tigist@police.gov', 'Reception'),
+                        ('OFF-005', 'Dawit Assefa', 'Inspector', '0955667788', 'dawit@police.gov', 'CID'),
+                        ('OFF-006', 'Sara Hailu', 'Constable', '0966778899', 'sara@police.gov', 'Patrol'),
+                        ('OFF-007', 'Yonas Alemu', 'Sergeant', '0977889900', 'yonas@police.gov', 'Traffic'),
+                        ('OFF-008', 'Meron Tesfaye', 'Constable', '0988990011', 'meron@police.gov', 'Admin'),
+                    ]
+                    for badge, name, rank, phone, email, unit in officers_data:
+                        cursor.execute(
+                            f"INSERT INTO cases_officer (badge_number, full_name, rank, phone, email, unit, is_active, created_at) "
+                            f"VALUES (%s, %s, %s, %s, %s, %s, True, %s) "
+                            f"{'ON CONFLICT (badge_number) DO NOTHING' if is_pg else 'ON CONFLICT (badge_number) DO NOTHING'}{returning}",
+                            [badge, name, rank, phone, email, unit, now_iso]
+                        )
+                    logger.info('[PDMS] Raw-SQL fallback: inserted %d officers', len(officers_data))
+
+                    # 2) Users (linked to officers)
+                    users_data = [
+                        ('admin', 'System Administrator', 'ADMIN', True, 'admin123', None),
+                        ('cmdr_haile', 'Cmdr. Haile Gebremariam', 'STATION_COMMANDER', False, 'cmdr123', 'OFF-001'),
+                        ('abebe', 'Sgt. Abebe Kebede', 'INVESTIGATOR', False, 'inv123', 'OFF-002'),
+                        ('kebede', 'Sgt. Kebede Tadesse', 'INVESTIGATOR', False, 'inv123', 'OFF-003'),
+                        ('clerk_tigist', 'Clerk Tigist Mekonnen', 'CLERK', False, 'clerk123', 'OFF-004'),
+                    ]
+                    for username, full_name, role, is_staff, password, badge in users_data:
+                        pw_hash = make_password(password)
+                        # Resolve officer FK
+                        officer_id = None
+                        if badge:
+                            cursor.execute(
+                                'SELECT id FROM cases_officer WHERE badge_number = %s', [badge])
+                            row = cursor.fetchone()
+                            if row:
+                                officer_id = row[0]
+                        cursor.execute(
+                            f"INSERT INTO core_customuser (username, full_name, role, is_staff, is_active, is_superuser, failed_attempts, password, officer_id, created_at, updated_at) "
+                            f"VALUES (%s, %s, %s, %s, True, True, 0, %s, %s, %s, %s) "
+                            f"{conflict}{returning}",
+                            [username, full_name, role, is_staff, pw_hash, officer_id, now_iso, now_iso]
+                        )
+                    logger.info('[PDMS] Raw-SQL fallback: inserted %d users', len(users_data))
+
                 transaction.commit()
-                _SEED_ERROR = None  # Clear error — fallback worked
+                _SEED_ERROR = None
                 seed_ok = True
-                logger.info('[PDMS] Raw-SQL fallback succeeded.')
+                logger.info('[PDMS] Raw-SQL fallback succeeded (officers + users).')
             except Exception as exc2:
                 _SEED_ERROR = f'{_SEED_ERROR}\n\nRaw-SQL fallback also failed: {exc2}\n{traceback.format_exc()}'
                 logger.error('[PDMS] Raw-SQL fallback failed: %s', exc2)
