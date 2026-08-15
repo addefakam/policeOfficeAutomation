@@ -127,3 +127,33 @@ LOGOUT_REDIRECT_URL = '/login/'
 # Default auto field
 # ============================================================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ============================================================
+# Logging — critical for debugging Vercel serverless 500 errors
+# ============================================================
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[%(asctime)s] %(levelname)s [%(name)s] %(message)s',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {'level': 'WARNING'},
+        'core': {'level': 'DEBUG'},
+    },
+}
+
+# Custom 500 handler so we can see errors even with DEBUG=False
+handler500 = 'config.views.server_error'

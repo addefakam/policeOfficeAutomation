@@ -3,8 +3,6 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib import messages
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from django.db import ProgrammingError, OperationalError
-from django.db.migrations.exceptions import InconsistentMigrationHistory
 from .decorators import require_auth, require_role
 from .middleware import log_audit, get_client_ip
 from .models import CustomUser, AuditLog, ROLE_HIERARCHY
@@ -20,100 +18,18 @@ DEMO_ACCOUNTS = [
 ]
 
 
-def _check_db():
-    """Return True if core_customuser table exists."""
-    from django.db import connections
-    conn = connections['default']
-    with conn.cursor() as cursor:
-        if conn.vendor == 'postgresql':
-            cursor.execute(
-                "SELECT 1 FROM information_schema.tables "
-                "WHERE table_schema='public' AND table_name='core_customuser' LIMIT 1"
-            )
-        else:
-            cursor.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='core_customuser' LIMIT 1"
-            )
-        return cursor.fetchone() is not None
-
-
-def _auto_migrate():
-    """Create tables via schema editor in dependency order."""
-    from django.apps import apps
-    from django.db import connections
-    connection = connections['default']
-
-    all_models = []
-    for app_config in apps.get_app_configs():
-        if app_config.models_module:
-            all_models.extend(app_config.get_models())
-
-    # Topological sort: models with no FK deps first
-    model_names = {m._meta.label for m in all_models}
-    sorted_models = []
-    remaining = list(all_models)
-    for _ in range(len(all_models) + 1):
-        if not remaining:
-            break
-        batch = []
-        still_remaining = []
-        for model in remaining:
-            deps = [
-                f.related_model._meta.label
-                for f in model._meta.get_fields()
-                if f.is_relation and f.many_to_one
-                and hasattr(f, 'related_model') and f.related_model
-                and f.related_model._meta.label in model_names
-                and f.related_model._meta.label != model._meta.label
-            ]
-            if all(d in {m._meta.label for m in sorted_models} for d in deps):
-                batch.append(model)
-            else:
-                still_remaining.append(model)
-        sorted_models.extend(batch)
-        remaining = still_remaining
-    sorted_models.extend(remaining)
-
-    # Create each model — no atomic wrapper so DDL commits immediately
-    for model in sorted_models:
-        try:
-            with connection.schema_editor() as se:
-                se.create_model(model)
-        except Exception:
-            try:
-                connection.rollback()
-            except Exception:
-                pass
-
-    from seed_data import seed
-    seed()
-
-
 def login_view(request):
-    # Auto-migrate if tables don't exist yet
-    try:
-        if not _check_db():
-            _auto_migrate()
-    except Exception:
-        _auto_migrate()
+    # Database is auto-initialised by AutoMigrateMiddleware (first middleware).
+    # No need for auto-migrate logic here.
+    if request.user.is_authenticated:
+        return redirect('core:dashboard')
 
-    try:
-        if request.user.is_authenticated:
-            return redirect('core:dashboard')
-    except Exception:
-        _auto_migrate()
-        if request.user.is_authenticated:
-            return redirect('core:dashboard')
     if request.method == 'POST':
         form = LoginForm(request.POST)
         if form.is_valid():
             username = form.cleaned_data['username']
             password = form.cleaned_data['password']
-            try:
-                user = authenticate(request, username=username, password=password)
-            except Exception:
-                _auto_migrate()
-                user = authenticate(request, username=username, password=password)
+            user = authenticate(request, username=username, password=password)
             if user:
                 if user.locked_until and user.locked_until > timezone.now():
                     messages.error(request, 'Account is locked. Try again later.')
