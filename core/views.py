@@ -27,10 +27,15 @@ def diag_view(request):
     Visit /diag/ to see what's happening on Vercel.
     Remove this after debugging.
     """
+    import traceback as tb
     from django.db import connections
     conn = connections['default']
-    lines = []
-    lines.append(f'<h2>DB Vendor: {conn.vendor}</h2>')
+    lines = ['<h2>PDMS Diagnostic</h2>']
+    lines.append(f'<p>DB Vendor: {conn.vendor}</p>')
+
+    # Show _MIGRATED flag
+    from core.middleware import _MIGRATED
+    lines.append(f'<p>_MIGRATED flag: {_MIGRATED}</p>')
 
     # Check tables
     with conn.cursor() as cursor:
@@ -58,6 +63,41 @@ def diag_view(request):
     except Exception as e:
         lines.append(f'<p style="color:red">Users error: {e}</p>')
 
+    # If ?seed=1, force-run the seed and show results
+    if request.GET.get('seed') == '1':
+        lines.append('<h3>Forced Seed</h3>')
+        try:
+            from seed_data import seed
+            seed()
+            lines.append('<p style="color:green">seed() completed successfully!</p>')
+            lines.append(f'<p>Users after seed: {CustomUser.objects.count()}</p>')
+            # Verify password
+            admin = CustomUser.objects.get(username='admin')
+            pw_ok = admin.check_password('admin123')
+            lines.append(f'<p>admin password check: {pw_ok}</p>')
+        except Exception as e:
+            lines.append(f'<p style="color:red">seed() FAILED:</p>')
+            lines.append(f'<pre>{tb.format_exc()}</pre>')
+    elif request.GET.get('quick') == '1':
+        # Quick test: just create the admin user directly
+        lines.append('<h3>Quick Admin Create</h3>')
+        try:
+            from cases.models import Officer
+            off, _ = Officer.objects.get_or_create(
+                badge_number='OFF-001',
+                defaults={'full_name': 'Test', 'rank': 'Inspector', 'unit': 'CID'}
+            )
+            admin, created = CustomUser.objects.get_or_create(
+                username='admin',
+                defaults={'full_name': 'Admin', 'role': 'ADMIN', 'is_staff': True, 'is_active': True, 'officer': off}
+            )
+            admin.set_password('admin123')
+            admin.save(update_fields=['password'])
+            lines.append(f'<p style="color:green">Admin created={created}, pw set. check_password={admin.check_password("admin123")}</p>')
+        except Exception as e:
+            lines.append(f'<p style="color:red">Quick create FAILED:</p>')
+            lines.append(f'<pre>{tb.format_exc()}</pre>')
+
     # Test authenticate directly
     try:
         test_user = authenticate(request, username='admin', password='admin123')
@@ -65,15 +105,8 @@ def diag_view(request):
     except Exception as e:
         lines.append(f'<p style="color:red">authenticate error: {e}</p>')
 
-    # Check AUTH_USER_MODEL
-    from django.contrib.auth import get_user_model
-    lines.append(f'<p>AUTH_USER_MODEL = {get_user_model()._meta.label}</p>')
-    lines.append(f'<p>Default manager = {get_user_model()._default_manager.__class__.__name__}</p>')
-    try:
-        by_natural = get_user_model()._default_manager.get_by_natural_key('admin')
-        lines.append(f'<p>get_by_natural_key(admin) = {by_natural}</p>')
-    except Exception as e:
-        lines.append(f'<p style="color:red">get_by_natural_key error: {e}</p>')
+    lines.append('<hr>')
+    lines.append('<p>Links: <a href="/diag/?seed=1">/diag/?seed=1</a> | <a href="/diag/?quick=1">/diag/?quick=1</a></p>')
 
     return HttpResponse('<html><body>' + '\n'.join(lines) + '</body></html>')
 
