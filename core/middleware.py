@@ -199,6 +199,43 @@ def _ensure_db():
             except Exception:
                 pass
 
+            # ---- Raw-SQL fallback: create admin user directly ----------------
+            # This bypasses the ORM entirely in case of model/field issues.
+            logger.info('[PDMS] Attempting raw-SQL admin user fallback…')
+            try:
+                from django.db import transaction
+                from django.contrib.auth.hashers import make_password
+                # Get a fresh connection — the old one may be in error state
+                connections.close_all()
+                fresh_conn = connections['default']
+                pw_hash = make_password('admin123')
+                with fresh_conn.cursor() as cursor:
+                    # Use INSERT … ON CONFLICT to be idempotent
+                    cursor.execute("""
+                        INSERT INTO core_customuser
+                            (username, full_name, role, is_staff, is_active,
+                             failed_attempts, password, created_at, updated_at)
+                        VALUES
+                            ('admin', 'System Administrator', 'ADMIN',
+                             True, True, 0, %s, NOW(), NOW())
+                        ON CONFLICT (username) DO UPDATE SET
+                            password = EXCLUDED.password,
+                            role = EXCLUDED.role,
+                            is_staff = EXCLUDED.is_staff,
+                            is_active = EXCLUDED.is_active,
+                            updated_at = NOW()
+                        RETURNING id
+                    """, [pw_hash])
+                    row = cursor.fetchone()
+                    logger.info('[PDMS] Raw-SQL fallback: admin user id=%s', row)
+                transaction.commit()
+                _SEED_ERROR = None  # Clear error — fallback worked
+                seed_ok = True
+                logger.info('[PDMS] Raw-SQL fallback succeeded.')
+            except Exception as exc2:
+                _SEED_ERROR = f'{_SEED_ERROR}\n\nRaw-SQL fallback also failed: {exc2}\n{traceback.format_exc()}'
+                logger.error('[PDMS] Raw-SQL fallback failed: %s', exc2)
+
         if seed_ok:
             _MIGRATED = True
             os.environ['_PDMS_MIGRATED'] = '1'
