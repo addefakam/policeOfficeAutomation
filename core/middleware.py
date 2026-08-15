@@ -12,6 +12,9 @@ _MIGRATED = os.environ.get('_PDMS_MIGRATED', '0') == '1'
 # Advisory lock ID for PostgreSQL (must fit in int4: max 2147483647)
 _ADVISORY_LOCK_ID = 987654
 
+# Captured seed error — readable by diag view
+_SEED_ERROR = None
+
 
 def _table_exists(conn, table_name):
     """Check if a table exists in the database."""
@@ -178,16 +181,31 @@ def _ensure_db():
 
         # Seed demo data (needed in both paths)
         logger.info('[PDMS] Seeding demo data…')
+        seed_ok = False
         try:
+            from django.db import transaction
             from seed_data import seed
             seed()
-            logger.info('[PDMS] Seed completed.')
+            transaction.commit()
+            logger.info('[PDMS] Seed completed and committed.')
+            seed_ok = True
         except Exception as exc:
-            logger.error('[PDMS] Seed failed: %s\n%s', exc, traceback.format_exc())
+            global _SEED_ERROR
+            _SEED_ERROR = f'{exc}\n{traceback.format_exc()}'
+            logger.error('[PDMS] Seed failed: %s\n%s', exc, _SEED_ERROR)
+            try:
+                from django.db import transaction
+                transaction.rollback()
+            except Exception:
+                pass
 
-        _MIGRATED = True
-        os.environ['_PDMS_MIGRATED'] = '1'
-        logger.info('[PDMS] Database initialisation complete.')
+        if seed_ok:
+            _MIGRATED = True
+            os.environ['_PDMS_MIGRATED'] = '1'
+            logger.info('[PDMS] Database initialisation complete.')
+        else:
+            # Do NOT set _MIGRATED — allow retry on next request
+            logger.warning('[PDMS] Seed failed — will retry on next request.')
 
     except Exception as exc:
         logger.error('[PDMS] Database init failed: %s\n%s', exc, traceback.format_exc())

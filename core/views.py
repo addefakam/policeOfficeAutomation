@@ -28,14 +28,17 @@ def diag_view(request):
     Remove this after debugging.
     """
     import traceback as tb
-    from django.db import connections
+    from django.db import connections, transaction
     conn = connections['default']
     lines = ['<h2>PDMS Diagnostic</h2>']
     lines.append(f'<p>DB Vendor: {conn.vendor}</p>')
 
-    # Show _MIGRATED flag
-    from core.middleware import _MIGRATED
+    # Show _MIGRATED flag and captured seed error
+    from core.middleware import _MIGRATED, _SEED_ERROR
     lines.append(f'<p>_MIGRATED flag: {_MIGRATED}</p>')
+    if _SEED_ERROR:
+        lines.append('<h3 style="color:red">Captured Seed Error (from middleware):</h3>')
+        lines.append(f'<pre style="color:red; background:#fee; padding:10px; overflow:auto">{_SEED_ERROR}</pre>')
 
     # Check tables
     with conn.cursor() as cursor:
@@ -48,12 +51,14 @@ def diag_view(request):
                 "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
             )
         tables = [r[0] for r in cursor.fetchall()]
-    lines.append(f'<p>Tables ({len(tables)}): {', '.join(tables)}</p>')
+    lines.append(f'<p>Tables ({len(tables)}): {", ".join(tables)}</p>')
 
     # Check users
+    user_count = 0
     try:
         users = CustomUser.objects.all()
-        lines.append(f'<p>Users: {users.count()}</p>')
+        user_count = users.count()
+        lines.append(f'<p>Users: {user_count}</p>')
         for u in users:
             pw_ok = u.check_password('admin123') if u.username == 'admin' else u.check_password('inv123')
             lines.append(
@@ -69,9 +74,9 @@ def diag_view(request):
         try:
             from seed_data import seed
             seed()
+            transaction.commit()
             lines.append('<p style="color:green">seed() completed successfully!</p>')
             lines.append(f'<p>Users after seed: {CustomUser.objects.count()}</p>')
-            # Verify password
             admin = CustomUser.objects.get(username='admin')
             pw_ok = admin.check_password('admin123')
             lines.append(f'<p>admin password check: {pw_ok}</p>')
@@ -79,7 +84,6 @@ def diag_view(request):
             lines.append(f'<p style="color:red">seed() FAILED:</p>')
             lines.append(f'<pre>{tb.format_exc()}</pre>')
     elif request.GET.get('quick') == '1':
-        # Quick test: just create the admin user directly
         lines.append('<h3>Quick Admin Create</h3>')
         try:
             from cases.models import Officer
@@ -97,6 +101,73 @@ def diag_view(request):
         except Exception as e:
             lines.append(f'<p style="color:red">Quick create FAILED:</p>')
             lines.append(f'<pre>{tb.format_exc()}</pre>')
+    elif request.GET.get('autofix') == '1':
+        lines.append('<h3>Auto-Fix Attempt</h3>')
+        try:
+            from cases.models import Officer
+            lines.append('<p>Step 1: Creating officer...</p>')
+            off, off_created = Officer.objects.get_or_create(
+                badge_number='OFF-001',
+                defaults={'full_name': 'Haile Gebremariam', 'rank': 'Inspector',
+                          'phone': '0911223344', 'email': 'hq@police.gov', 'unit': 'CID'}
+            )
+            lines.append(f'<p style="color:green">  Officer OK (created={off_created}, id={off.id})</p>')
+            transaction.commit()
+            lines.append('<p>Step 2: Creating admin user...</p>')
+            admin, user_created = CustomUser.objects.get_or_create(
+                username='admin',
+                defaults={'full_name': 'System Administrator', 'role': 'ADMIN',
+                          'is_staff': True, 'is_active': True, 'officer': off}
+            )
+            admin.set_password('admin123')
+            admin.save(update_fields=['password'])
+            transaction.commit()
+            pw_ok = admin.check_password('admin123')
+            lines.append(f'<p style="color:green">  User OK (created={user_created}, id={admin.id}, pw_ok={pw_ok})</p>')
+        except Exception as e:
+            lines.append(f'<p style="color:red">Auto-fix FAILED:</p>')
+            lines.append(f'<pre>{tb.format_exc()}</pre>')
+    elif user_count == 0:
+        # Auto-diagnostic: 0 users — run progressive tests
+        lines.append('<h3 style="color:orange">Auto-Diagnostic (0 users detected)</h3>')
+        lines.append('<p>Test 1: Officer.objects.get_or_create...</p>')
+        try:
+            from cases.models import Officer
+            off, created = Officer.objects.get_or_create(
+                badge_number='DIAG-TEST',
+                defaults={'full_name': 'Diag Test', 'rank': 'Constable', 'unit': 'Test'}
+            )
+            transaction.commit()
+            lines.append(f'<p style="color:green">  OK: Officer id={off.id}, created={created}</p>')
+            off.delete()
+            transaction.commit()
+        except Exception as e:
+            lines.append(f'<p style="color:red">  FAILED: {e}</p>')
+            lines.append(f'<pre>{tb.format_exc()}</pre>')
+
+        lines.append('<p>Test 2: CustomUser get_or_create (no officer FK)...</p>')
+        try:
+            admin, created = CustomUser.objects.get_or_create(
+                username='admin',
+                defaults={'full_name': 'Admin', 'role': 'ADMIN', 'is_staff': True, 'is_active': True}
+            )
+            admin.set_password('admin123')
+            admin.save(update_fields=['password'])
+            transaction.commit()
+            lines.append(f'<p style="color:green">  OK: User id={admin.id}, created={created}, pw={admin.check_password("admin123")}</p>')
+        except Exception as e:
+            lines.append(f'<p style="color:red">  FAILED: {e}</p>')
+            lines.append(f'<pre>{tb.format_exc()}</pre>')
+
+        lines.append('<p>Test 3: Full seed_data.seed()...</p>')
+        try:
+            from seed_data import seed
+            seed()
+            transaction.commit()
+            lines.append(f'<p style="color:green">  OK: Full seed completed. Users: {CustomUser.objects.count()}</p>')
+        except Exception as e:
+            lines.append(f'<p style="color:red">  FAILED: {e}</p>')
+            lines.append(f'<pre>{tb.format_exc()}</pre>')
 
     # Test authenticate directly
     try:
@@ -106,7 +177,7 @@ def diag_view(request):
         lines.append(f'<p style="color:red">authenticate error: {e}</p>')
 
     lines.append('<hr>')
-    lines.append('<p>Links: <a href="/diag/?seed=1">/diag/?seed=1</a> | <a href="/diag/?quick=1">/diag/?quick=1</a></p>')
+    lines.append('<p>Links: <a href="/diag/?seed=1">/diag/?seed=1</a> | <a href="/diag/?quick=1">/diag/?quick=1</a> | <a href="/diag/?autofix=1">/diag/?autofix=1</a></p>')
 
     return HttpResponse('<html><body>' + '\n'.join(lines) + '</body></html>')
 
