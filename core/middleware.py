@@ -209,23 +209,46 @@ def _ensure_db():
                 connections.close_all()
                 fresh_conn = connections['default']
                 pw_hash = make_password('admin123')
+                # Use Python timestamp — works on both PostgreSQL and SQLite
+                from django.utils import timezone
+                now_iso = timezone.now().isoformat()
                 with fresh_conn.cursor() as cursor:
                     # Use INSERT … ON CONFLICT to be idempotent
-                    cursor.execute("""
-                        INSERT INTO core_customuser
-                            (username, full_name, role, is_staff, is_active,
-                             failed_attempts, password, created_at, updated_at)
-                        VALUES
-                            ('admin', 'System Administrator', 'ADMIN',
-                             True, True, 0, %s, NOW(), NOW())
-                        ON CONFLICT (username) DO UPDATE SET
-                            password = EXCLUDED.password,
-                            role = EXCLUDED.role,
-                            is_staff = EXCLUDED.is_staff,
-                            is_active = EXCLUDED.is_active,
-                            updated_at = NOW()
-                        RETURNING id
-                    """, [pw_hash])
+                    if fresh_conn.vendor == 'postgresql':
+                        cursor.execute("""
+                            INSERT INTO core_customuser
+                                (username, full_name, role, is_staff, is_active,
+                                 is_superuser, failed_attempts, password,
+                                 created_at, updated_at)
+                            VALUES
+                                ('admin', 'System Administrator', 'ADMIN',
+                                 True, True, True, 0, %s, %s, %s)
+                            ON CONFLICT (username) DO UPDATE SET
+                                password = EXCLUDED.password,
+                                role = EXCLUDED.role,
+                                is_staff = EXCLUDED.is_staff,
+                                is_active = EXCLUDED.is_active,
+                                is_superuser = EXCLUDED.is_superuser,
+                                updated_at = EXCLUDED.updated_at
+                            RETURNING id
+                        """, [pw_hash, now_iso, now_iso])
+                    else:
+                        cursor.execute("""
+                            INSERT INTO core_customuser
+                                (username, full_name, role, is_staff, is_active,
+                                 is_superuser, failed_attempts, password,
+                                 created_at, updated_at)
+                            VALUES
+                                ('admin', 'System Administrator', 'ADMIN',
+                                 True, True, True, 0, %s, %s, %s)
+                            ON CONFLICT (username) DO UPDATE SET
+                                password = EXCLUDED.password,
+                                role = EXCLUDED.role,
+                                is_staff = EXCLUDED.is_staff,
+                                is_active = EXCLUDED.is_active,
+                                is_superuser = EXCLUDED.is_superuser,
+                                updated_at = EXCLUDED.updated_at
+                        """, [pw_hash, now_iso, now_iso])
                     row = cursor.fetchone()
                     logger.info('[PDMS] Raw-SQL fallback: admin user id=%s', row)
                 transaction.commit()
